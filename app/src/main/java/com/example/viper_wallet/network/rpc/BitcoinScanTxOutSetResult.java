@@ -32,8 +32,11 @@ public class BitcoinScanTxOutSetResult {
     public static class Unspent {
         private String txid;
         private int vout;
+        private String scriptPubKey;
+        private String desc;
         private double amount;
         private int height;
+        private boolean coinbase;
 
         public String getTxid() {
             return txid;
@@ -41,6 +44,14 @@ public class BitcoinScanTxOutSetResult {
 
         public int getVout() {
             return vout;
+        }
+
+        public String getScriptPubKey() {
+            return scriptPubKey;
+        }
+
+        public String getDescriptor() {
+            return desc;
         }
 
         public double getAmount() {
@@ -53,6 +64,10 @@ public class BitcoinScanTxOutSetResult {
 
         public int getHeight() {
             return height;
+        }
+
+        public boolean isCoinbase() {
+            return coinbase;
         }
     }
 }

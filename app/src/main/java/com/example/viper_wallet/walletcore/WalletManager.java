@@ -6,11 +6,18 @@ import android.util.Log;
 
 import org.bitcoinj.base.Address;
 import org.bitcoinj.base.Coin;
+import org.bitcoinj.base.Network;
 import org.bitcoinj.base.ScriptType;
+import org.bitcoinj.base.Sha256Hash;
 import org.bitcoinj.core.BlockChain;
 import org.bitcoinj.core.PeerAddress;
 import org.bitcoinj.core.PeerGroup;
 import org.bitcoinj.core.Transaction;
+import org.bitcoinj.core.UTXO;
+import org.bitcoinj.core.UTXOProvider;
+import org.bitcoinj.core.UTXOProviderException;
+import org.bitcoinj.crypto.ECKey;
+import org.bitcoinj.script.Script;
 import org.bitcoinj.store.BlockStore;
 import org.bitcoinj.store.MemoryBlockStore;
 import org.bitcoinj.wallet.DeterministicSeed;
@@ -102,8 +109,12 @@ public class WalletManager {
 
             peerGroup.addWallet(wallet);
             peerGroup.startAsync();
+            peerGroup.downloadBlockChain();
             
             wallet.addCoinsReceivedEventListener((w, tx, prevBalance, newBalance) -> {
+                try { saveWallet(); } catch (IOException e) { e.printStackTrace(); }
+            });
+            wallet.addCoinsSentEventListener((w, tx, prevBalance, newBalance) -> {
                 try { saveWallet(); } catch (IOException e) { e.printStackTrace(); }
             });
         } catch (Exception e) {
@@ -115,13 +126,21 @@ public class WalletManager {
         Address address = Address.fromString(Constants.NETWORK_PARAMETERS, recipientAddress);
         SendRequest request = SendRequest.to(address, Coin.valueOf(amountSats));
         wallet.completeTx(request);
+        saveWallet();
         return request.tx;
     }
 
-    public void broadcastTransaction(Transaction tx) {
+    public void setRpcUtxos(List<WalletUtxo> unspents, int chainHeadHeight) {
+        if (wallet == null) return;
+        wallet.setUTXOProvider(new RpcUtxoProvider(unspents, chainHeadHeight));
+    }
+
+    public boolean broadcastTransaction(Transaction tx) {
         if (peerGroup != null) {
             peerGroup.broadcastTransaction(tx);
+            return true;
         }
+        return false;
     }
 
     public String getCurrentReceiveAddress() {
@@ -147,6 +166,11 @@ public class WalletManager {
         Address currentAddress = wallet.currentReceiveAddress();
         if (currentAddress != null) {
             addresses.add(currentAddress.toString());
+        }
+
+        Address currentChangeAddress = wallet.currentChangeAddress();
+        if (currentChangeAddress != null) {
+            addresses.add(currentChangeAddress.toString());
         }
 
         return new ArrayList<>(addresses);
@@ -184,5 +208,84 @@ public class WalletManager {
 
     public Wallet getWallet() {
         return wallet;
+    }
+
+    public static class WalletUtxo {
+        private final String txid;
+        private final long vout;
+        private final long amountSats;
+        private final int height;
+        private final boolean coinbase;
+        private final String scriptPubKey;
+        private final String address;
+
+        public WalletUtxo(
+                String txid,
+                long vout,
+                long amountSats,
+                int height,
+                boolean coinbase,
+                String scriptPubKey,
+                String address
+        ) {
+            this.txid = txid;
+            this.vout = vout;
+            this.amountSats = amountSats;
+            this.height = height;
+            this.coinbase = coinbase;
+            this.scriptPubKey = scriptPubKey;
+            this.address = address;
+        }
+    }
+
+    private static class RpcUtxoProvider implements UTXOProvider {
+        private final List<WalletUtxo> unspents;
+        private final int chainHeadHeight;
+
+        private RpcUtxoProvider(List<WalletUtxo> unspents, int chainHeadHeight) {
+            this.unspents = new ArrayList<>(unspents);
+            this.chainHeadHeight = chainHeadHeight;
+        }
+
+        @Override
+        public List<UTXO> getOpenTransactionOutputs(List<ECKey> keys) throws UTXOProviderException {
+            List<UTXO> utxos = new ArrayList<>();
+            for (WalletUtxo unspent : unspents) {
+                try {
+                    utxos.add(new UTXO(
+                            Sha256Hash.wrap(unspent.txid),
+                            unspent.vout,
+                            Coin.valueOf(unspent.amountSats),
+                            unspent.height,
+                            unspent.coinbase,
+                            Script.parse(hexToBytes(unspent.scriptPubKey)),
+                            unspent.address
+                    ));
+                } catch (Exception e) {
+                    throw new UTXOProviderException(e);
+                }
+            }
+            return utxos;
+        }
+
+        @Override
+        public int getChainHeadHeight() {
+            return chainHeadHeight;
+        }
+
+        @Override
+        public Network network() {
+            return Constants.NETWORK_PARAMETERS.network();
+        }
+
+        private static byte[] hexToBytes(String hex) {
+            int length = hex.length();
+            byte[] bytes = new byte[length / 2];
+            for (int i = 0; i < length; i += 2) {
+                bytes[i / 2] = (byte) ((Character.digit(hex.charAt(i), 16) << 4)
+                        + Character.digit(hex.charAt(i + 1), 16));
+            }
+            return bytes;
+        }
     }
 }

@@ -55,6 +55,7 @@ dependencies {
     implementation libs.lifecycle.viewmodel
     implementation libs.biometric
     implementation libs.zxing.core
+    implementation libs.zxing.android.embedded
     implementation libs.security.crypto
 
     testImplementation libs.junit
