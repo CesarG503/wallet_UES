@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary - Viper Green -->
+    <color name="primary">#2ECC71</color>
+    <color name="onPrimary">#FFFFFF</color>
+    <color name="primaryContainer">#D5F5E3</color>
+    <color name="onPrimaryContainer">#186A3B</color>
+
+    <!-- Secondary - Darker Green/Gray -->
+    <color name="secondary">#273746</color>
+    <color name="onSecondary">#FFFFFF</color>
+    <color name="secondaryContainer">#D5D8DC</color>
+    <color name="onSecondaryContainer">#1B2631</color>
+
+    <!-- Tertiary - Accent -->
+    <color name="tertiary">#F1C40F</color>
+    <color name="onTertiary">#000000</color>
+
+    <!-- Backgrounds -->
+    <color name="background">#FBFCFC</color>
+    <color name="onBackground">#1C1B1F</color>
+    <color name="surface">#FBFCFC</color>
+    <color name="onSurface">#1C1B1F</color>
+
+    <!-- Dark Mode Overrides (used in values-night) -->
+    <color name="primary_dark">#58D68D</color>
+    <color name="background_dark">#121212</color>
+    <color name="surface_dark">#1E1E1E</color>
+
+    <!-- Utils -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="error">#B00020</color>
+</resources>
