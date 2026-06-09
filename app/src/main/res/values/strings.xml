@@ -20,4 +20,25 @@
     <string name="receive_address_message">Dirección RegTest para recibir VPR:</string>
     <string name="feature_coming_soon">Funcionalidad próximamente</string>
     <string name="btn_done">Hecho</string>
+
+    <!-- Auth Strings -->
+    <string name="title_register">Crear Cuenta</string>
+    <string name="title_login">Iniciar Sesión</string>
+    <string name="hint_email">Correo Electrónico</string>
+    <string name="hint_password">Contraseña de Cuenta</string>
+    <string name="hint_wallet_password">Contraseña de la Billetera (AES)</string>
+    <string name="helper_wallet_password">Esta contraseña se usa para cifrar tu semilla en la nube. ¡No la pierdas!</string>
+    <string name="btn_register">Registrar y Crear Wallet</string>
+    <string name="btn_login">Entrar</string>
+    <string name="already_have_account">¿Ya tienes cuenta? Inicia sesión</string>
+    <string name="dont_have_account">¿No tienes cuenta? Regístrate</string>
+    <string name="prompt_wallet_password">Ingresa el password de tu wallet</string>
+    <string name="wallet_restore_success">Wallet restaurada exitosamente</string>
+
+    <!-- Profile Strings -->
+    <string name="title_profile">Mi Perfil</string>
+    <string name="label_uid">ID de Usuario:</string>
+    <string name="label_email">Email:</string>
+    <string name="btn_logout">Cerrar Sesión</string>
+    <string name="security_auth_required">Se requiere autenticación para ver la semilla</string>
 </resources>

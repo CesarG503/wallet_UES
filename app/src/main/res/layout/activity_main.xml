@@ -32,32 +32,23 @@
             android:textAppearance="@style/TextAppearance.Material3.HeadlineLarge"
             android:textStyle="bold" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center"
-            android:text="@string/welcome_subtitle"
-            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-            android:textColor="?android:attr/textColorSecondary" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnGenerateWallet"
             style="@style/Widget.Material3.Button"
             android:layout_width="match_parent"
             android:layout_height="64dp"
             android:layout_marginTop="48dp"
-            android:text="@string/btn_generate_wallet"
+            android:text="Crear Cuenta"
             android:textSize="18sp"
             app:cornerRadius="16dp" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnRestoreWallet"
+            android:id="@+id/btnRestoreWalletSetup"
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="@string/btn_restore_wallet" />
+            android:text="Ya tengo una cuenta" />
     </LinearLayout>
 
     <!-- Wallet View (Main Dashboard) -->
@@ -73,13 +64,47 @@
             android:orientation="vertical"
             android:padding="16dp">
 
+            <!-- Header -->
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/welcome_title"
+                        android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
+                        android:textStyle="bold" />
+                    <TextView
+                        android:id="@+id/tvNetwork"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
+                        android:alpha="0.6"
+                        tools:text="Viper RegTest" />
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnProfile"
+                    style="@style/Widget.Material3.Button.IconButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_alignParentEnd="true"
+                    app:icon="@android:drawable/ic_menu_info_details" />
+            </RelativeLayout>
+
+            <!-- Balance Card -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="16dp"
                 app:cardCornerRadius="24dp"
                 app:cardElevation="0dp"
-                app:strokeWidth="0dp"
                 app:cardBackgroundColor="?attr/colorPrimaryContainer">
 
                 <LinearLayout
@@ -92,8 +117,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/total_balance"
-                        android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
-                        android:textColor="?attr/colorOnPrimaryContainer" />
+                        android:textAppearance="@style/TextAppearance.Material3.LabelLarge" />
 
                     <TextView
                         android:id="@+id/tvBalance"
@@ -102,7 +126,6 @@
                         android:layout_marginTop="4dp"
                         android:text="0.00000000 VPR"
                         android:textAppearance="@style/TextAppearance.Material3.HeadlineLarge"
-                        android:textColor="?attr/colorOnPrimaryContainer"
                         android:textStyle="bold" />
 
                     <TextView
@@ -111,66 +134,16 @@
                         android:layout_height="wrap_content"
                         android:text="0 sats"
                         android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                        android:textColor="?attr/colorOnPrimaryContainer"
                         android:alpha="0.7" />
-
-                    <TextView
-                        android:id="@+id/tvNetwork"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:text="@string/network_label"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                        android:textColor="?attr/colorOnPrimaryContainer"
-                        android:alpha="0.8" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="0dp"
-                app:strokeWidth="1dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/receive_address_title"
-                        android:textAppearance="@style/TextAppearance.Material3.LabelLarge" />
-
-                    <TextView
-                        android:id="@+id/tvReceiveAddress"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="@string/empty_receive_address"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textIsSelectable="true" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="32dp"
-                android:layout_marginStart="8dp"
-                android:text="@string/actions_title"
-                android:textAppearance="@style/TextAppearance.Material3.TitleMedium" />
-
+            <!-- Actions Grid -->
             <GridLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:columnCount="2"
-                android:rowCount="1">
+                android:layout_marginTop="24dp"
+                android:columnCount="3">
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnReceive"
@@ -179,9 +152,9 @@
                     android:layout_height="80dp"
                     android:layout_columnWeight="1"
                     android:layout_margin="4dp"
-                    android:text="@string/btn_receive"
-                    app:cornerRadius="16dp"
-                    app:icon="@android:drawable/stat_sys_download" />
+                    android:text="Recibir"
+                    app:icon="@android:drawable/stat_sys_download"
+                    app:iconGravity="top" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnSend"
@@ -190,58 +163,93 @@
                     android:layout_height="80dp"
                     android:layout_columnWeight="1"
                     android:layout_margin="4dp"
-                    android:text="@string/btn_send"
-                    app:cornerRadius="16dp"
-                    app:icon="@android:drawable/stat_sys_upload" />
+                    android:text="Enviar"
+                    app:icon="@android:drawable/stat_sys_upload"
+                    app:iconGravity="top" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnHistory"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="0dp"
+                    android:layout_height="80dp"
+                    android:layout_columnWeight="1"
+                    android:layout_margin="4dp"
+                    android:text="Historial"
+                    app:icon="@android:drawable/ic_menu_recent_history"
+                    app:iconGravity="top" />
             </GridLayout>
 
+            <!-- Address Card -->
             <com.google.android.material.card.MaterialCardView
-                android:id="@+id/cardBackup"
+                android:id="@+id/cardAddress"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="16dp"
                 app:cardCornerRadius="16dp"
-                app:strokeColor="?attr/colorTertiary"
                 app:strokeWidth="1dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:padding="16dp"
                     android:gravity="center_vertical">
-
-                    <ImageView
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:src="@android:drawable/ic_dialog_alert"
-                        app:tint="?attr/colorTertiary" />
 
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginStart="16dp"
                         android:orientation="vertical">
-
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="@string/backup_title"
+                            android:text="Tu Dirección"
                             android:textAppearance="@style/TextAppearance.Material3.LabelLarge" />
-
                         <TextView
-                            android:layout_width="wrap_content"
+                            android:id="@+id/tvReceiveAddress"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="@string/backup_subtitle"
-                            android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                            android:layout_marginTop="4dp"
+                            android:ellipsize="middle"
+                            android:singleLine="true"
+                            tools:text="bc1q..." />
                     </LinearLayout>
 
                     <ImageView
+                        android:id="@+id/ivCopyAddress"
                         android:layout_width="24dp"
                         android:layout_height="24dp"
-                        android:src="@android:drawable/ic_media_play"
-                        app:tint="?android:attr/textColorSecondary" />
+                        android:src="@android:drawable/ic_menu_edit"
+                        android:contentDescription="Copiar"
+                        app:tint="?attr/colorPrimary" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Backup Warning -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardBackup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                app:cardCornerRadius="16dp"
+                app:strokeColor="?attr/colorTertiary"
+                app:strokeWidth="1dp">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="16dp"
+                    android:gravity="center_vertical">
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@android:drawable/ic_dialog_alert"
+                        app:tint="?attr/colorTertiary" />
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="12dp"
+                        android:text="Asegura tus 12 palabras ahora"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

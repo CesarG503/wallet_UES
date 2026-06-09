@@ -1,20 +1,74 @@
+# ════════════════════════════════════════════
+# Android / Gradle
+# ════════════════════════════════════════════
 *.iml
-.gradle
+.gradle/
 /local.properties
-/.idea
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
 local.properties
+/build/
+/captures/
+.externalNativeBuild/
+.cxx/
 
-# Firebase configuration file
+# Carpeta de build por módulo
+app/build/
+app/release/
+
+# ════════════════════════════════════════════
+# IntelliJ / Android Studio — .idea
+# Se ignora la carpeta completa EXCEPTO los
+# archivos de configuración del proyecto que
+# sí deben compartirse entre el equipo.
+# ════════════════════════════════════════════
+.idea/
+!.idea/codeStyles/
+!.idea/inspectionProfiles/
+!.idea/runConfigurations/
+
+# Estos son específicos de cada máquina/usuario
+# (ya están cubiertos por .idea/ pero se listan
+#  explícitamente por claridad)
+# .idea/workspace.xml        ← personal, NO commitear
+# .idea/tasks.xml            ← personal
+# .idea/usage.statistics.xml ← personal
+# .idea/shelf/               ← personal
+# .idea/deploymentTargetSelector.xml ← personal
+# .idea/appInsightsSettings.xml      ← personal
+
+# ════════════════════════════════════════════
+# macOS
+# ════════════════════════════════════════════
+.DS_Store
+**/.DS_Store
+
+# ════════════════════════════════════════════
+# Archivos sensibles / secretos — NUNCA commitear
+# ════════════════════════════════════════════
+
+# Firebase — contiene API keys y project IDs
 google-services.json
 
-# User-specific stuff
-.idea/workspace.xml
-.idea/tasks.xml
-.idea/usage.statistics.xml
-.idea/dictionaries
-.idea/shelf
+# Android signing keystore
+*.jks
+*.keystore
+release.properties
+keystore.properties
+
+# Variables de entorno locales
+.env
+*.env.local
+
+# ════════════════════════════════════════════
+# Archivos generados automáticamente
+# ════════════════════════════════════════════
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+
+# ProGuard
+proguard/

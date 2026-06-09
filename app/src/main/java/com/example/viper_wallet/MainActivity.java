@@ -1,6 +1,7 @@
 package com.example.viper_wallet;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -29,7 +30,11 @@ import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.example.viper_wallet.auth.AuthManager;
+import com.example.viper_wallet.auth.LoginActivity;
+import com.example.viper_wallet.auth.ProfileActivity;
 import com.example.viper_wallet.databinding.ActivityMainBinding;
+import com.example.viper_wallet.models.TransactionRecord;
 import com.example.viper_wallet.network.rpc.BitcoinRpcClient;
 import com.example.viper_wallet.network.rpc.BitcoinRpcResponse;
 import com.example.viper_wallet.network.rpc.BitcoinScanTxOutSetResult;
@@ -37,6 +42,8 @@ import com.example.viper_wallet.walletcore.Constants;
 import com.example.viper_wallet.walletcore.WalletManager;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.MultiFormatWriter;
 import com.google.zxing.WriterException;
@@ -86,6 +93,15 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // 1. Verificar sesión de Firebase
+        //    La biometría ya fue verificada en LoginActivity antes de llegar aquí.
+        FirebaseUser currentUser = FirebaseAuth.getInstance().getCurrentUser();
+        if (currentUser == null) {
+            goToLogin();
+            return;
+        }
+
         EdgeToEdge.enable(this);
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
@@ -94,8 +110,15 @@ public class MainActivity extends AppCompatActivity {
 
         setupCameraPermissionLauncher();
         setupWindowInsets();
-        checkWalletState();
         setupListeners();
+
+        // 2. Verificar estado de la wallet
+        checkWalletState();
+    }
+
+    private void goToLogin() {
+        startActivity(new Intent(this, LoginActivity.class));
+        finish();
     }
 
     @Override
@@ -139,8 +162,95 @@ public class MainActivity extends AppCompatActivity {
         if (walletManager.hasWallet()) {
             showDashboard();
         } else {
-            showSetup();
+            // No hay wallet local → intentar restaurar desde el backup en Firebase
+            tryRestoreWalletFromCloud();
         }
+    }
+
+    /**
+     * Verifica si el usuario tiene un backup de wallet en Firestore.
+     * Si existe → pide contraseña AES y restaura la wallet.
+     * Si no existe → cierra sesión y va a Login (debe registrarse).
+     * Si hay error de red → muestra pantalla de Setup como fallback.
+     */
+    private void tryRestoreWalletFromCloud() {
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user == null) { goToLogin(); return; }
+
+        AuthManager.getInstance().checkUserExists(user.getUid(), new AuthManager.CheckUserCallback() {
+            @Override
+            public void onResult(boolean hasBackup) {
+                if (hasBackup) {
+                    showRestoreWalletDialog(user.getUid());
+                } else {
+                    // No hay backup — cuenta sin wallet (caso raro: registro incompleto)
+                    FirebaseAuth.getInstance().signOut();
+                    Toast.makeText(MainActivity.this,
+                            "No se encontró una wallet asociada. Por favor regístrate.",
+                            Toast.LENGTH_LONG).show();
+                    goToLogin();
+                }
+            }
+
+            @Override
+            public void onError(String message) {
+                // Error de red — mostrar pantalla de fallback
+                showSetup();
+                Toast.makeText(MainActivity.this,
+                        "Sin conexión. Verifica tu internet.", Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    /**
+     * Muestra un diálogo para pedir la contraseña AES y restaurar la wallet
+     * descifrando la semilla desde Firestore.
+     */
+    private void showRestoreWalletDialog(String uid) {
+        final android.widget.EditText etWalletPass = new android.widget.EditText(this);
+        etWalletPass.setHint("Contraseña de tu Billetera");
+        etWalletPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+
+        androidx.appcompat.app.AlertDialog dialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("Restaurar Wallet")
+                .setMessage("Ingresa tu contraseña de cifrado (AES) para descifrar y restaurar tu wallet desde el respaldo en la nube.")
+                .setView(etWalletPass)
+                .setCancelable(false)
+                .setPositiveButton("Restaurar", null)
+                .setNegativeButton("Cerrar Sesión", (d, w) -> {
+                    FirebaseAuth.getInstance().signOut();
+                    goToLogin();
+                })
+                .create();
+
+        dialog.show();
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String walletPass = etWalletPass.getText().toString();
+            if (walletPass.isEmpty()) {
+                etWalletPass.setError("Ingresa tu contraseña");
+                return;
+            }
+
+            AuthManager.getInstance().getDecryptedSeed(uid, walletPass, new AuthManager.SeedCallback() {
+                @Override
+                public void onSeedReady(String mnemonic) {
+                    try {
+                        walletManager.restoreWalletFromMnemonic(mnemonic, walletPass);
+                        dialog.dismiss();
+                        Toast.makeText(MainActivity.this,
+                                getString(R.string.wallet_restore_success), Toast.LENGTH_SHORT).show();
+                        showDashboard();
+                    } catch (Exception e) {
+                        etWalletPass.setError("Error al restaurar: " + e.getMessage());
+                    }
+                }
+
+                @Override
+                public void onError(String message) {
+                    etWalletPass.setError("Contraseña incorrecta o error de red");
+                }
+            });
+        });
     }
 
     private void showSetup() {
@@ -159,28 +269,37 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupListeners() {
-        binding.btnGenerateWallet.setOnClickListener(v -> generateNewWallet());
-        
-        binding.btnRestoreWallet.setOnClickListener(v -> {
-            Toast.makeText(this, R.string.feature_coming_soon, Toast.LENGTH_SHORT).show();
+        // Crear Cuenta: redirige a RegisterActivity para asegurar que la wallet
+        // siempre se guarda cifrada en Firebase. No se crea wallet "en seco" aquí.
+        binding.btnGenerateWallet.setOnClickListener(v -> {
+            Intent intent = new Intent(this, com.example.viper_wallet.auth.RegisterActivity.class);
+            startActivity(intent);
         });
 
+        // "Ya tengo una cuenta": cierra sesión actual y va a Login para que
+        // el usuario inicie sesión con su cuenta que tiene wallet en Firebase.
+        if (binding.btnRestoreWalletSetup != null) {
+            binding.btnRestoreWalletSetup.setOnClickListener(v -> {
+                FirebaseAuth.getInstance().signOut();
+                goToLogin();
+            });
+        }
+
+        // Abrir Perfil
+        binding.btnProfile.setOnClickListener(v -> {
+            startActivity(new Intent(this, ProfileActivity.class));
+        });
+
+        // Historial de transacciones
+        binding.btnHistory.setOnClickListener(v -> {
+            startActivity(new Intent(this, com.example.viper_wallet.auth.TransactionHistoryActivity.class));
+        });
+
+        // Backup seguro con contraseña de wallet
         binding.cardBackup.setOnClickListener(v -> showSeedPhrase());
 
         binding.btnReceive.setOnClickListener(v -> showReceiveAddress());
-
         binding.btnSend.setOnClickListener(v -> showSendDialog());
-    }
-
-    private void generateNewWallet() {
-        try {
-            walletManager.createWallet();
-            showSeedPhrase();
-            showDashboard();
-            Toast.makeText(this, R.string.wallet_created_success, Toast.LENGTH_LONG).show();
-        } catch (IOException e) {
-            Toast.makeText(this, R.string.error_creating_wallet, Toast.LENGTH_LONG).show();
-        }
     }
 
     private void initializeServerWalletOnce() {
@@ -251,7 +370,25 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showSeedPhrase() {
-        String mnemonic = walletManager.getMnemonic();
+        if (walletManager.isEncrypted()) {
+            requestWalletPassword(password -> {
+                try {
+                    String mnemonic = walletManager.getMnemonic(password);
+                    displaySeedDialog(mnemonic);
+                } catch (Exception e) {
+                    Toast.makeText(this, "Contraseña incorrecta", Toast.LENGTH_SHORT).show();
+                }
+            });
+        } else {
+            try {
+                displaySeedDialog(walletManager.getMnemonic(null));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void displaySeedDialog(String mnemonic) {
         if (mnemonic == null) return;
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
@@ -653,14 +790,31 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void createSignAndBroadcastTransaction(String address, long amountSats) {
+        if (walletManager.isEncrypted()) {
+            requestWalletPassword(password -> {
+                performTransaction(address, amountSats, password);
+            });
+        } else {
+            performTransaction(address, amountSats, null);
+        }
+    }
+
+    private void performTransaction(String address, long amountSats, String password) {
         try {
-            Transaction tx = walletManager.createTransaction(address, amountSats);
-            BitcoinRpcClient.getInstance().sendRawTransaction(toHex(tx.serialize()), new Callback<BitcoinRpcResponse<String>>() {
+            Transaction tx = walletManager.createTransaction(address, amountSats, password);
+            String txHex = toHex(tx.serialize());
+            BitcoinRpcClient.getInstance().sendRawTransaction(txHex, new Callback<BitcoinRpcResponse<String>>() {
                 @Override
                 public void onResponse(Call<BitcoinRpcResponse<String>> call, Response<BitcoinRpcResponse<String>> response) {
                     BitcoinRpcResponse<String> body = response.body();
                     if (response.isSuccessful() && body != null && body.getError() == null) {
-                        Toast.makeText(MainActivity.this, "Transacción enviada: " + body.getResult(), Toast.LENGTH_LONG).show();
+                        String txId = body.getResult();
+                        Toast.makeText(MainActivity.this, "Transacción enviada: " + txId, Toast.LENGTH_LONG).show();
+                        
+                        AuthManager.getInstance().saveTransaction(new TransactionRecord(
+                            txId, "SEND", amountSats, address
+                        ));
+
                         updateUI();
                         refreshBalanceFromRpc();
                         return;
@@ -683,6 +837,26 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
             e.printStackTrace();
         }
+    }
+
+    private interface PasswordCallback {
+        void onPasswordEntered(String password);
+    }
+
+    private void requestWalletPassword(PasswordCallback callback) {
+        final EditText etWalletPass = new EditText(this);
+        etWalletPass.setHint(R.string.prompt_wallet_password);
+        etWalletPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("Contraseña de Billetera")
+                .setMessage("Se requiere tu contraseña para autorizar esta acción.")
+                .setView(etWalletPass)
+                .setPositiveButton("Confirmar", (dialog, which) -> {
+                    callback.onPasswordEntered(etWalletPass.getText().toString());
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
     }
 
     private List<WalletManager.WalletUtxo> toWalletUtxos(

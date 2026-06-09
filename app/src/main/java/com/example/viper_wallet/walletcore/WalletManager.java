@@ -16,7 +16,10 @@ import org.bitcoinj.core.Transaction;
 import org.bitcoinj.core.UTXO;
 import org.bitcoinj.core.UTXOProvider;
 import org.bitcoinj.core.UTXOProviderException;
+import org.bitcoinj.crypto.AesKey;
 import org.bitcoinj.crypto.ECKey;
+import org.bitcoinj.crypto.KeyCrypter;
+import org.bitcoinj.crypto.KeyCrypterScrypt;
 import org.bitcoinj.script.Script;
 import org.bitcoinj.store.BlockStore;
 import org.bitcoinj.store.MemoryBlockStore;
@@ -58,15 +61,36 @@ public class WalletManager {
         return walletFile.exists();
     }
 
-    public Wallet createWallet() throws IOException {
+    public Wallet createWallet(String password) throws IOException {
         context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .remove(Constants.KEY_SERVER_WALLET_NAME)
                 .apply();
         wallet = Wallet.createDeterministic(Constants.NETWORK_PARAMETERS, ScriptType.P2WPKH);
+        
+        if (password != null && !password.isEmpty()) {
+            KeyCrypterScrypt keyCrypter = new KeyCrypterScrypt();
+            AesKey aesKey = keyCrypter.deriveKey(password);
+            wallet.encrypt(keyCrypter, aesKey);
+        }
+        
         saveWallet();
         setHasWalletFlag(true);
         return wallet;
+    }
+
+    public void restoreWalletFromMnemonic(String mnemonic, String password) throws Exception {
+        DeterministicSeed seed = new DeterministicSeed(mnemonic, null, "", 0);
+        wallet = Wallet.fromSeed(Constants.NETWORK_PARAMETERS, seed, ScriptType.P2WPKH);
+        
+        if (password != null && !password.isEmpty()) {
+            KeyCrypterScrypt keyCrypter = new KeyCrypterScrypt();
+            AesKey aesKey = keyCrypter.deriveKey(password);
+            wallet.encrypt(keyCrypter, aesKey);
+        }
+        
+        saveWallet();
+        setHasWalletFlag(true);
     }
 
     public void saveWallet() throws IOException {
@@ -96,12 +120,10 @@ public class WalletManager {
     private void startSync() {
         if (wallet == null || peerGroup != null) return;
         try {
-            // Fix for bitcoinj 0.17.1: MemoryBlockStore requires the genesis block
             BlockStore blockStore = new MemoryBlockStore(Constants.NETWORK_PARAMETERS.getGenesisBlock());
             BlockChain chain = new BlockChain(Constants.NETWORK_PARAMETERS, wallet, blockStore);
             peerGroup = new PeerGroup(Constants.NETWORK_PARAMETERS, chain);
             
-            // Port 18444 is the RegTest P2P port. RPC uses 18443 and is not used by PeerGroup.
             peerGroup.addAddress(PeerAddress.simple(
                     InetAddress.getByName(Constants.NODE_HOST),
                     Constants.NODE_P2P_PORT
@@ -122,9 +144,19 @@ public class WalletManager {
         }
     }
 
-    public Transaction createTransaction(String recipientAddress, long amountSats) throws Exception {
+    public Transaction createTransaction(String recipientAddress, long amountSats, String password) throws Exception {
         Address address = Address.fromString(Constants.NETWORK_PARAMETERS, recipientAddress);
         SendRequest request = SendRequest.to(address, Coin.valueOf(amountSats));
+        
+        if (wallet.isEncrypted()) {
+            if (password == null || password.isEmpty()) {
+                throw new Exception("Wallet is encrypted, password required");
+            }
+            KeyCrypter crypter = wallet.getKeyCrypter();
+            if (crypter == null) throw new Exception("Wallet has no key crypter");
+            request.aesKey = crypter.deriveKey(password);
+        }
+        
         wallet.completeTx(request);
         saveWallet();
         return request.tx;
@@ -195,10 +227,26 @@ public class WalletManager {
         return walletName;
     }
 
-    public String getMnemonic() {
+    public String getMnemonic(String password) throws Exception {
         if (wallet == null) return null;
         DeterministicSeed seed = wallet.getKeyChainSeed();
-        return (seed != null) ? String.join(" ", seed.getMnemonicCode()) : null;
+        if (seed == null) return null;
+        
+        if (seed.isEncrypted()) {
+            if (password == null || password.isEmpty()) {
+                throw new Exception("Seed is encrypted, password required");
+            }
+            KeyCrypter crypter = wallet.getKeyCrypter();
+            if (crypter == null) throw new Exception("Wallet has no key crypter");
+            seed = seed.decrypt(crypter, "", crypter.deriveKey(password));
+        }
+        
+        List<String> mnemonicCode = seed.getMnemonicCode();
+        return (mnemonicCode != null) ? String.join(" ", mnemonicCode) : null;
+    }
+
+    public boolean isEncrypted() {
+        return wallet != null && wallet.isEncrypted();
     }
 
     private void setHasWalletFlag(boolean hasWallet) {
@@ -248,7 +296,7 @@ public class WalletManager {
         }
 
         @Override
-        public List<UTXO> getOpenTransactionOutputs(List<ECKey> keys) throws UTXOProviderException {
+        public List<UTXO> getOpenTransactionOutputs(List<ECKey> keys) throws org.bitcoinj.core.UTXOProviderException {
             List<UTXO> utxos = new ArrayList<>();
             for (WalletUtxo unspent : unspents) {
                 try {
@@ -262,7 +310,7 @@ public class WalletManager {
                             unspent.address
                     ));
                 } catch (Exception e) {
-                    throw new UTXOProviderException(e);
+                    throw new org.bitcoinj.core.UTXOProviderException(e);
                 }
             }
             return utxos;

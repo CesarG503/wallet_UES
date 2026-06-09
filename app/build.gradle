@@ -1,8 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-
-    id 'com.android.application'
-
     id 'com.google.gms.google-services'
 }
 
@@ -33,6 +30,13 @@ android {
     buildFeatures {
         viewBinding true
         buildConfig true
+    }
+}
+
+// Global exclusion to fix Duplicate Class issues between protobuf-javalite and protolite-well-known-types
+configurations.all {
+    resolutionStrategy {
+        force 'com.google.protobuf:protobuf-javalite:3.25.1'
     }
 }
 
@@ -67,9 +71,11 @@ dependencies {
     androidTestImplementation libs.espresso.core
 
     // Firebase
-    implementation platform('com.google.firebase:firebase-bom:34.14.0')
+    implementation platform(libs.firebase.bom)
     implementation 'com.google.firebase:firebase-analytics'
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-firestore'
-
+    
+    // Google Sign-In
+    implementation libs.google.play.services.auth
 }

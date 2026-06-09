@@ -16,6 +16,8 @@ zxingAndroidEmbedded = "4.3.0"
 biometric = "1.1.0"
 lifecycle = "2.8.7"
 securityCrypto = "1.1.0"
+googlePlayServicesAuth = "21.3.0"
+firebaseBom = "34.14.1"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -37,6 +39,8 @@ biometric = { group = "androidx.biometric", name = "biometric", version.ref = "b
 lifecycle-livedata = { group = "androidx.lifecycle", name = "lifecycle-livedata", version.ref = "lifecycle" }
 lifecycle-viewmodel = { group = "androidx.lifecycle", name = "lifecycle-viewmodel", version.ref = "lifecycle" }
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+google-play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "googlePlayServicesAuth" }
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

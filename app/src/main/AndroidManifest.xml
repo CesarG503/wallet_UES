@@ -4,6 +4,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <queries>
+        <package android:name="com.google.android.gms" />
+    </queries>
 
     <application
         android:allowBackup="true"
@@ -15,15 +20,40 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Viper_wallet">
+
+        <!--
+            LoginActivity es el punto de entrada SIEMPRE.
+            MainActivity verifica sesión Firebase internamente y redirige
+            a LoginActivity si no hay sesión activa.
+        -->
         <activity
-            android:name=".MainActivity"
-            android:exported="true">
+            android:name=".auth.LoginActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".auth.RegisterActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".auth.ProfileActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".auth.TransactionHistoryActivity"
+            android:exported="false"
+            android:label="Historial de Transacciones" />
+
     </application>
 
 </manifest>
