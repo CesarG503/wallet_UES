@@ -36,7 +36,10 @@ public class ProfileActivity extends AppCompatActivity {
             // 2. Cerrar sesión en Google para limpiar caché de cuenta
             GoogleSignInOptions gso = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build();
             GoogleSignIn.getClient(this, gso).signOut().addOnCompleteListener(task -> {
-                // 3. Redirigir a LoginActivity
+                // 3. Reiniciar wallet en memoria
+                com.example.viper_wallet.walletcore.WalletManager.getInstance(this).reset();
+
+                // 4. Redirigir a LoginActivity
                 Intent intent = new Intent(ProfileActivity.this, LoginActivity.class);
                 intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
                 startActivity(intent);

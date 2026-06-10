@@ -227,32 +227,46 @@ public class RegisterActivity extends AppCompatActivity {
 
     private void createAndSaveWallet(String uid, String walletPassword) {
         setLoading(true);
-        try {
-            walletManager.createWallet(walletPassword);
-            String mnemonic = walletManager.getMnemonic(walletPassword);
+        walletManager.createWalletAsync(walletPassword, new WalletManager.WalletCallback() {
+            @Override
+            public void onSuccess(org.bitcoinj.wallet.Wallet wallet) {
+                walletManager.getMnemonicAsync(walletPassword, new WalletManager.MnemonicCallback() {
+                    @Override
+                    public void onSuccess(String mnemonic) {
+                        if (mnemonic == null) {
+                            setLoading(false);
+                            Toast.makeText(RegisterActivity.this, "Error generando la semilla. Intenta nuevamente.", Toast.LENGTH_LONG).show();
+                            return;
+                        }
 
-            if (mnemonic == null) {
-                setLoading(false);
-                Toast.makeText(this, "Error generando la semilla. Intenta nuevamente.", Toast.LENGTH_LONG).show();
-                return;
+                        authManager.saveNewWalletForExistingUser(uid, walletPassword, mnemonic,
+                                () -> {
+                                    setLoading(false);
+                                    // Paso 4: mostrar semilla
+                                    showSeedPhraseAndFinish(mnemonic);
+                                },
+                                error -> {
+                                    setLoading(false);
+                                    Toast.makeText(RegisterActivity.this,
+                                            "Error guardando backup en la nube: " + error, Toast.LENGTH_LONG).show();
+                                }
+                        );
+                    }
+
+                    @Override
+                    public void onError(Exception e) {
+                        setLoading(false);
+                        Toast.makeText(RegisterActivity.this, "Error generando frase semilla: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                });
             }
 
-            authManager.saveNewWalletForExistingUser(uid, walletPassword, mnemonic,
-                    () -> {
-                        setLoading(false);
-                        // Paso 4: mostrar semilla
-                        showSeedPhraseAndFinish(mnemonic);
-                    },
-                    error -> {
-                        setLoading(false);
-                        Toast.makeText(this,
-                                "Error guardando backup en la nube: " + error, Toast.LENGTH_LONG).show();
-                    }
-            );
-        } catch (Exception e) {
-            setLoading(false);
-            Toast.makeText(this, "Error crítico: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
+            @Override
+            public void onError(Exception e) {
+                setLoading(false);
+                Toast.makeText(RegisterActivity.this, "Error crítico al crear wallet: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────

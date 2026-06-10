@@ -27,6 +27,8 @@ import org.bitcoinj.wallet.DeterministicSeed;
 import org.bitcoinj.wallet.SendRequest;
 import org.bitcoinj.wallet.Wallet;
 
+import android.os.Handler;
+import android.os.Looper;
 import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -43,6 +45,8 @@ public class WalletManager {
     private Wallet wallet;
     private PeerGroup peerGroup;
     private final ExecutorService syncExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService walletExecutor = Executors.newCachedThreadPool();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Context context;
 
     private WalletManager(Context context) {
@@ -56,15 +60,43 @@ public class WalletManager {
         return instance;
     }
 
+    private String getWalletFileName() {
+        com.google.firebase.auth.FirebaseUser user = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+        if (user != null) {
+            return "wallet_" + user.getUid() + ".protobuf";
+        }
+        return "wallet_default.protobuf";
+    }
+
+    private String getServerWalletPrefKey() {
+        com.google.firebase.auth.FirebaseUser user = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+        if (user != null) {
+            return Constants.KEY_SERVER_WALLET_NAME + "_" + user.getUid();
+        }
+        return Constants.KEY_SERVER_WALLET_NAME + "_default";
+    }
+
+    public void reset() {
+        if (peerGroup != null) {
+            try {
+                peerGroup.stop();
+            } catch (Exception e) {
+                Log.e(TAG, "Error stopping peerGroup during reset", e);
+            }
+            peerGroup = null;
+        }
+        wallet = null;
+    }
+
     public boolean hasWallet() {
-        File walletFile = new File(context.getFilesDir(), Constants.WALLET_FILENAME);
+        File walletFile = new File(context.getFilesDir(), getWalletFileName());
         return walletFile.exists();
     }
 
     public Wallet createWallet(String password) throws IOException {
         context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
-                .remove(Constants.KEY_SERVER_WALLET_NAME)
+                .remove(getServerWalletPrefKey())
                 .apply();
         wallet = Wallet.createDeterministic(Constants.NETWORK_PARAMETERS, ScriptType.P2WPKH);
         
@@ -95,13 +127,13 @@ public class WalletManager {
 
     public void saveWallet() throws IOException {
         if (wallet != null) {
-            File walletFile = new File(context.getFilesDir(), Constants.WALLET_FILENAME);
+            File walletFile = new File(context.getFilesDir(), getWalletFileName());
             wallet.saveToFile(walletFile);
         }
     }
 
     public Wallet loadWallet() throws IOException {
-        File walletFile = new File(context.getFilesDir(), Constants.WALLET_FILENAME);
+        File walletFile = new File(context.getFilesDir(), getWalletFileName());
         if (!walletFile.exists()) return null;
         try {
             wallet = Wallet.loadFromFile(walletFile);
@@ -210,7 +242,7 @@ public class WalletManager {
 
     public String getServerWalletName() {
         SharedPreferences prefs = context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE);
-        String savedName = prefs.getString(Constants.KEY_SERVER_WALLET_NAME, null);
+        String savedName = prefs.getString(getServerWalletPrefKey(), null);
         if (savedName != null && !savedName.isEmpty()) {
             return savedName;
         }
@@ -223,7 +255,7 @@ public class WalletManager {
         String safeAddress = address.replaceAll("[^a-zA-Z0-9_-]", "");
         String walletName = Constants.SERVER_WALLET_PREFIX
                 + safeAddress.substring(0, Math.min(safeAddress.length(), 24));
-        prefs.edit().putString(Constants.KEY_SERVER_WALLET_NAME, walletName).apply();
+        prefs.edit().putString(getServerWalletPrefKey(), walletName).apply();
         return walletName;
     }
 
@@ -335,5 +367,71 @@ public class WalletManager {
             }
             return bytes;
         }
+    }
+
+    // --- Asynchronous Cryptographic Helpers ---
+
+    public interface WalletCallback {
+        void onSuccess(Wallet wallet);
+        void onError(Exception e);
+    }
+
+    public interface SimpleCallback {
+        void onSuccess();
+        void onError(Exception e);
+    }
+
+    public interface MnemonicCallback {
+        void onSuccess(String mnemonic);
+        void onError(Exception e);
+    }
+
+    public interface TransactionCallback {
+        void onSuccess(Transaction tx);
+        void onError(Exception e);
+    }
+
+    public void createWalletAsync(String password, WalletCallback callback) {
+        walletExecutor.execute(() -> {
+            try {
+                Wallet result = createWallet(password);
+                mainHandler.post(() -> callback.onSuccess(result));
+            } catch (Exception e) {
+                mainHandler.post(() -> callback.onError(e));
+            }
+        });
+    }
+
+    public void restoreWalletFromMnemonicAsync(String mnemonic, String password, SimpleCallback callback) {
+        walletExecutor.execute(() -> {
+            try {
+                restoreWalletFromMnemonic(mnemonic, password);
+                mainHandler.post(callback::onSuccess);
+            } catch (Exception e) {
+                mainHandler.post(() -> callback.onError(e));
+            }
+        });
+    }
+
+    public void getMnemonicAsync(String password, MnemonicCallback callback) {
+        walletExecutor.execute(() -> {
+            try {
+                String mnemonic = getMnemonic(password);
+                mainHandler.post(() -> callback.onSuccess(mnemonic));
+            } catch (Exception e) {
+                mainHandler.post(() -> callback.onError(e));
+            }
+        });
+    }
+
+    public void createTransactionAsync(String recipientAddress, long amountSats, String password, TransactionCallback callback) {
+        walletExecutor.execute(() -> {
+            try {
+                Transaction tx = createTransaction(recipientAddress, amountSats, password);
+                mainHandler.post(() -> callback.onSuccess(tx));
+            } catch (Exception e) {
+                mainHandler.post(() -> callback.onError(e));
+            }
+        });
     }
 }

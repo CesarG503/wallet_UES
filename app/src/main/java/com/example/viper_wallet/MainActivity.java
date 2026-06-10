@@ -117,6 +117,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void goToLogin() {
+        walletManager.reset();
         startActivity(new Intent(this, LoginActivity.class));
         finish();
     }
@@ -234,15 +235,25 @@ public class MainActivity extends AppCompatActivity {
             AuthManager.getInstance().getDecryptedSeed(uid, walletPass, new AuthManager.SeedCallback() {
                 @Override
                 public void onSeedReady(String mnemonic) {
-                    try {
-                        walletManager.restoreWalletFromMnemonic(mnemonic, walletPass);
-                        dialog.dismiss();
-                        Toast.makeText(MainActivity.this,
-                                getString(R.string.wallet_restore_success), Toast.LENGTH_SHORT).show();
-                        showDashboard();
-                    } catch (Exception e) {
-                        etWalletPass.setError("Error al restaurar: " + e.getMessage());
-                    }
+                    dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+                    etWalletPass.setEnabled(false);
+                    walletManager.restoreWalletFromMnemonicAsync(mnemonic, walletPass, new WalletManager.SimpleCallback() {
+                        @Override
+                        public void onSuccess() {
+                            dialog.dismiss();
+                            Toast.makeText(MainActivity.this,
+                                    getString(R.string.wallet_restore_success), Toast.LENGTH_SHORT).show();
+                            displaySeedDialog(mnemonic);
+                            showDashboard();
+                        }
+
+                        @Override
+                        public void onError(Exception e) {
+                            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                            etWalletPass.setEnabled(true);
+                            etWalletPass.setError("Error al restaurar: " + e.getMessage());
+                        }
+                    });
                 }
 
                 @Override
@@ -387,19 +398,30 @@ public class MainActivity extends AppCompatActivity {
     private void showSeedPhrase() {
         if (walletManager.isEncrypted()) {
             requestWalletPassword(password -> {
-                try {
-                    String mnemonic = walletManager.getMnemonic(password);
-                    displaySeedDialog(mnemonic);
-                } catch (Exception e) {
-                    Toast.makeText(this, "Contraseña incorrecta", Toast.LENGTH_SHORT).show();
-                }
+                walletManager.getMnemonicAsync(password, new WalletManager.MnemonicCallback() {
+                    @Override
+                    public void onSuccess(String mnemonic) {
+                        displaySeedDialog(mnemonic);
+                    }
+
+                    @Override
+                    public void onError(Exception e) {
+                        Toast.makeText(MainActivity.this, "Contraseña incorrecta", Toast.LENGTH_SHORT).show();
+                    }
+                });
             });
         } else {
-            try {
-                displaySeedDialog(walletManager.getMnemonic(null));
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            walletManager.getMnemonicAsync(null, new WalletManager.MnemonicCallback() {
+                @Override
+                public void onSuccess(String mnemonic) {
+                    displaySeedDialog(mnemonic);
+                }
+
+                @Override
+                public void onError(Exception e) {
+                    Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            });
         }
     }
 
@@ -833,49 +855,57 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void performTransaction(String address, long amountSats, String password) {
-        try {
-            Transaction tx = walletManager.createTransaction(address, amountSats, password);
-            String txHex = toHex(tx.serialize());
-            BitcoinRpcClient.getInstance().sendRawTransaction(txHex, new Callback<BitcoinRpcResponse<String>>() {
-                @Override
-                public void onResponse(Call<BitcoinRpcResponse<String>> call, Response<BitcoinRpcResponse<String>> response) {
-                    BitcoinRpcResponse<String> body = response.body();
-                    if (response.isSuccessful() && body != null && body.getError() == null) {
-                        String txId = body.getResult();
-                        Toast.makeText(MainActivity.this, "Transacción enviada: " + txId, Toast.LENGTH_LONG).show();
-                        
-                        AuthManager.getInstance().saveTransaction(new TransactionRecord(
-                            txId, "SEND", amountSats, address
-                        ));
+        walletManager.createTransactionAsync(address, amountSats, password, new WalletManager.TransactionCallback() {
+            @Override
+            public void onSuccess(Transaction tx) {
+                try {
+                    String txHex = toHex(tx.serialize());
+                    BitcoinRpcClient.getInstance().sendRawTransaction(txHex, new Callback<BitcoinRpcResponse<String>>() {
+                        @Override
+                        public void onResponse(Call<BitcoinRpcResponse<String>> call, Response<BitcoinRpcResponse<String>> response) {
+                            BitcoinRpcResponse<String> body = response.body();
+                            if (response.isSuccessful() && body != null && body.getError() == null) {
+                                String txId = body.getResult();
+                                Toast.makeText(MainActivity.this, "Transacción enviada: " + txId, Toast.LENGTH_LONG).show();
 
-                        updateUI();
-                        refreshBalanceFromRpc();
-                        return;
-                    }
+                                AuthManager.getInstance().saveTransaction(new TransactionRecord(
+                                    txId, "SEND", amountSats, address
+                                ));
 
-                    String message = "respuesta RPC inválida";
-                    if (body != null && body.getError() != null) {
-                        message = body.getError().getMessage();
-                    } else {
-                        BitcoinRpcResponse<?> errorResponse = parseErrorResponse(response);
-                        if (errorResponse != null && errorResponse.getError() != null) {
-                            message = errorResponse.getError().getMessage();
+                                updateUI();
+                                refreshBalanceFromRpc();
+                                return;
+                            }
+
+                            String message = "respuesta RPC inválida";
+                            if (body != null && body.getError() != null) {
+                                message = body.getError().getMessage();
+                            } else {
+                                BitcoinRpcResponse<?> errorResponse = parseErrorResponse(response);
+                                if (errorResponse != null && errorResponse.getError() != null) {
+                                    message = errorResponse.getError().getMessage();
+                                }
+                            }
+                            Toast.makeText(MainActivity.this, "No se pudo transmitir: " + message, Toast.LENGTH_LONG).show();
+                            Log.w(TAG, "sendrawtransaction RPC: " + message);
                         }
-                    }
-                    Toast.makeText(MainActivity.this, "No se pudo transmitir: " + message, Toast.LENGTH_LONG).show();
-                    Log.w(TAG, "sendrawtransaction RPC: " + message);
-                }
 
-                @Override
-                public void onFailure(Call<BitcoinRpcResponse<String>> call, Throwable t) {
-                    Toast.makeText(MainActivity.this, "Error RPC enviando tx: " + t.getMessage(), Toast.LENGTH_LONG).show();
-                    Log.w(TAG, "Error RPC sendrawtransaction", t);
+                        @Override
+                        public void onFailure(Call<BitcoinRpcResponse<String>> call, Throwable t) {
+                            Toast.makeText(MainActivity.this, "Error RPC enviando tx: " + t.getMessage(), Toast.LENGTH_LONG).show();
+                            Log.w(TAG, "Error RPC sendrawtransaction", t);
+                        }
+                    });
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "Error al serializar: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 }
-            });
-        } catch (Exception e) {
-            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            e.printStackTrace();
-        }
+            }
+
+            @Override
+            public void onError(Exception e) {
+                Toast.makeText(MainActivity.this, "Error al firmar transacción: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private interface PasswordCallback {

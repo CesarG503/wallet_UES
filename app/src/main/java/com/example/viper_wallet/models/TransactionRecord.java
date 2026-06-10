@@ -1,22 +1,20 @@
 package com.example.viper_wallet.models;
 
-import com.google.firebase.Timestamp;
-
 public class TransactionRecord {
     private String txId;
     private String type; // "SEND" o "RECEIVE"
     private long amountSats;
     private String address;
-    private Timestamp timestamp;
+    private long timestamp;
 
-    public TransactionRecord() {} // Requerido para Firestore
+    public TransactionRecord() {} // Requerido para Realtime Database
 
     public TransactionRecord(String txId, String type, long amountSats, String address) {
         this.txId = txId;
         this.type = type;
         this.amountSats = amountSats;
         this.address = address;
-        this.timestamp = Timestamp.now();
+        this.timestamp = System.currentTimeMillis();
     }
 
     // Getters y Setters
@@ -24,5 +22,5 @@ public class TransactionRecord {
     public String getType() { return type; }
     public long getAmountSats() { return amountSats; }
     public String getAddress() { return address; }
-    public Timestamp getTimestamp() { return timestamp; }
+    public long getTimestamp() { return timestamp; }
 }

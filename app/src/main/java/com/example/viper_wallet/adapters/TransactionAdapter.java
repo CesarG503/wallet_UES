@@ -42,8 +42,8 @@ public class TransactionAdapter extends RecyclerView.Adapter<TransactionAdapter.
         holder.tvAmount.setText((isSend ? "-" : "+") + amountStr);
         holder.tvAmount.setTextColor(holder.itemView.getContext().getColor(isSend ? android.R.color.holo_red_dark : android.R.color.holo_green_dark));
         
-        if (tx.getTimestamp() != null) {
-            holder.tvDate.setText(dateFormat.format(tx.getTimestamp().toDate()));
+        if (tx.getTimestamp() != 0) {
+            holder.tvDate.setText(dateFormat.format(new java.util.Date(tx.getTimestamp())));
         }
     }
 
