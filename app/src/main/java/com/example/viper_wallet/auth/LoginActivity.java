@@ -115,7 +115,7 @@ public class LoginActivity extends AppCompatActivity {
      * Si falla, cierra sesión y muestra el formulario.
      */
     private void requestBiometrics() {
-        if (BiometricHelper.isBiometricAvailable(this)) {
+        if (BiometricHelper.isBiometricOrPinAvailable(this)) {
             BiometricHelper.showPrompt(this, new BiometricHelper.BiometricCallback() {
                 @Override
                 public void onAuthenticated() {
@@ -124,7 +124,7 @@ public class LoginActivity extends AppCompatActivity {
 
                 @Override
                 public void onError(String error) {
-                    // Huella cancelada o falló → cerrar sesión y mostrar formulario
+                    // Verificación cancelada o falló → cerrar sesión y mostrar formulario
                     FirebaseAuth.getInstance().signOut();
                     biometricTriggered = false;
                     showFormState();
@@ -134,7 +134,7 @@ public class LoginActivity extends AppCompatActivity {
                 }
             });
         } else {
-            // No hay biometría disponible en este dispositivo → pasar directo
+            // No hay biometría ni PIN/patrón configurados en este dispositivo → pasar directo
             goToMain();
         }
     }

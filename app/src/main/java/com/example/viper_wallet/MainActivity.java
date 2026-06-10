@@ -317,10 +317,17 @@ public class MainActivity extends AppCompatActivity {
                 if (response.isSuccessful() && response.body() != null && response.body().getError() == null) {
                     Toast.makeText(MainActivity.this, "Wallet RPC creada: " + walletName, Toast.LENGTH_SHORT).show();
                 } else {
-                    BitcoinRpcResponse.BitcoinRpcError error = response.body() != null
-                            ? response.body().getError()
-                            : null;
-                    String message = error != null ? error.getMessage() : "respuesta RPC inválida";
+                    BitcoinRpcResponse.BitcoinRpcError error = response.body() != null ? response.body().getError() : null;
+                    String message = "respuesta RPC inválida";
+                    if (error != null) {
+                        message = error.getMessage();
+                    } else {
+                        BitcoinRpcResponse<?> errorResponse = parseErrorResponse(response);
+                        if (errorResponse != null && errorResponse.getError() != null) {
+                            message = errorResponse.getError().getMessage();
+                            error = errorResponse.getError();
+                        }
+                    }
                     Log.w(TAG, "createwallet RPC: " + message);
                     if (isWalletAlreadyExistsError(error)) {
                         loadServerWalletAndSync(walletName);
@@ -358,7 +365,15 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
 
-                String message = error != null ? error.getMessage() : "respuesta RPC inválida";
+                String message = "respuesta RPC inválida";
+                if (error != null) {
+                    message = error.getMessage();
+                } else {
+                    BitcoinRpcResponse<?> errorResponse = parseErrorResponse(response);
+                    if (errorResponse != null && errorResponse.getError() != null) {
+                        message = errorResponse.getError().getMessage();
+                    }
+                }
                 Log.w(TAG, "loadwallet RPC: " + message);
             }
 
@@ -524,9 +539,15 @@ public class MainActivity extends AppCompatActivity {
                     ) {
                         BitcoinRpcResponse<Object> body = response.body();
                         if (!response.isSuccessful() || body == null || body.getError() != null) {
-                            String message = body != null && body.getError() != null
-                                    ? body.getError().getMessage()
-                                    : "respuesta RPC inválida";
+                            String message = "respuesta RPC inválida";
+                            if (body != null && body.getError() != null) {
+                                message = body.getError().getMessage();
+                            } else {
+                                BitcoinRpcResponse<?> errorResponse = parseErrorResponse(response);
+                                if (errorResponse != null && errorResponse.getError() != null) {
+                                    message = errorResponse.getError().getMessage();
+                                }
+                            }
                             Log.w(TAG, "No se pudo registrar dirección " + address + ": " + message);
                             if (onComplete != null) onComplete.run();
                             return;
@@ -723,9 +744,15 @@ public class MainActivity extends AppCompatActivity {
             public void onResponse(Call<BitcoinRpcResponse<Object>> call, Response<BitcoinRpcResponse<Object>> response) {
                 BitcoinRpcResponse<Object> body = response.body();
                 if (!response.isSuccessful() || body == null || body.getError() != null) {
-                    String message = body != null && body.getError() != null
-                            ? body.getError().getMessage()
-                            : "respuesta RPC inválida";
+                    String message = "respuesta RPC inválida";
+                    if (body != null && body.getError() != null) {
+                        message = body.getError().getMessage();
+                    } else {
+                        BitcoinRpcResponse<?> errorResponse = parseErrorResponse(response);
+                        if (errorResponse != null && errorResponse.getError() != null) {
+                            message = errorResponse.getError().getMessage();
+                        }
+                    }
                     Toast.makeText(MainActivity.this, "No se pudo leer altura del nodo: " + message, Toast.LENGTH_LONG).show();
                     return;
                 }
@@ -760,9 +787,15 @@ public class MainActivity extends AppCompatActivity {
             ) {
                 BitcoinRpcResponse<BitcoinScanTxOutSetResult> body = response.body();
                 if (!response.isSuccessful() || body == null || body.getError() != null || body.getResult() == null) {
-                    String message = body != null && body.getError() != null
-                            ? body.getError().getMessage()
-                            : "respuesta RPC inválida";
+                    String message = "respuesta RPC inválida";
+                    if (body != null && body.getError() != null) {
+                        message = body.getError().getMessage();
+                    } else {
+                        BitcoinRpcResponse<?> errorResponse = parseErrorResponse(response);
+                        if (errorResponse != null && errorResponse.getError() != null) {
+                            message = errorResponse.getError().getMessage();
+                        }
+                    }
                     Toast.makeText(MainActivity.this, "No se pudieron leer UTXOs: " + message, Toast.LENGTH_LONG).show();
                     return;
                 }
@@ -820,9 +853,15 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
 
-                    String message = body != null && body.getError() != null
-                            ? body.getError().getMessage()
-                            : "respuesta RPC inválida";
+                    String message = "respuesta RPC inválida";
+                    if (body != null && body.getError() != null) {
+                        message = body.getError().getMessage();
+                    } else {
+                        BitcoinRpcResponse<?> errorResponse = parseErrorResponse(response);
+                        if (errorResponse != null && errorResponse.getError() != null) {
+                            message = errorResponse.getError().getMessage();
+                        }
+                    }
                     Toast.makeText(MainActivity.this, "No se pudo transmitir: " + message, Toast.LENGTH_LONG).show();
                     Log.w(TAG, "sendrawtransaction RPC: " + message);
                 }
@@ -972,9 +1011,15 @@ public class MainActivity extends AppCompatActivity {
 
                 BitcoinRpcResponse<BitcoinScanTxOutSetResult> body = response.body();
                 if (!response.isSuccessful() || body == null || body.getError() != null || body.getResult() == null) {
-                    String message = body != null && body.getError() != null
-                            ? body.getError().getMessage()
-                            : "respuesta RPC inválida";
+                    String message = "respuesta RPC inválida";
+                    if (body != null && body.getError() != null) {
+                        message = body.getError().getMessage();
+                    } else {
+                        BitcoinRpcResponse<?> errorResponse = parseErrorResponse(response);
+                        if (errorResponse != null && errorResponse.getError() != null) {
+                            message = errorResponse.getError().getMessage();
+                        }
+                    }
                     Log.w(TAG, "No se pudo actualizar balance: " + message);
                     return;
                 }
@@ -997,5 +1042,19 @@ public class MainActivity extends AppCompatActivity {
         String balance = String.format(Locale.US, "%.8f %s", sats / 100_000_000.0, Constants.COIN_TICKER);
         binding.tvBalance.setText(balance);
         binding.tvBalanceSats.setText(sats + " sats");
+    }
+
+    private BitcoinRpcResponse<?> parseErrorResponse(Response<?> response) {
+        try {
+            if (response.errorBody() != null) {
+                retrofit2.Retrofit retrofit = BitcoinRpcClient.getInstance().getRetrofit();
+                retrofit2.Converter<okhttp3.ResponseBody, BitcoinRpcResponse> converter =
+                        retrofit.responseBodyConverter(BitcoinRpcResponse.class, new java.lang.annotation.Annotation[0]);
+                return converter.convert(response.errorBody());
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error parsing error body", e);
+        }
+        return null;
     }
 }

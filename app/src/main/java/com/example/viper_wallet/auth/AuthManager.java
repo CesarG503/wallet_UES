@@ -50,11 +50,25 @@ public class AuthManager {
     }
 
     public void checkUserExists(String uid, CheckUserCallback callback) {
+        final boolean[] finished = {false};
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        Runnable timeoutRunnable = () -> {
+            if (!finished[0]) {
+                finished[0] = true;
+                callback.onError("Timeout al verificar usuario en la nube.");
+            }
+        };
+        handler.postDelayed(timeoutRunnable, 10000);
+
         db.collection("users").document(uid).get().addOnCompleteListener(task -> {
-            if (task.isSuccessful()) {
-                callback.onResult(task.getResult().exists());
-            } else {
-                callback.onError(task.getException().getMessage());
+            if (!finished[0]) {
+                finished[0] = true;
+                handler.removeCallbacks(timeoutRunnable);
+                if (task.isSuccessful()) {
+                    callback.onResult(task.getResult().exists());
+                } else {
+                    callback.onError(task.getException() != null ? task.getException().getMessage() : "Error desconocido");
+                }
             }
         });
     }
@@ -112,23 +126,45 @@ public class AuthManager {
     }
 
     public void getDecryptedSeed(String uid, String walletPassword, SeedCallback callback) {
-        db.collection("users").document(uid).get().addOnSuccessListener(doc -> {
-            if (doc.exists()) {
-                try {
-                    String encryptedSeed = doc.getString("encryptedSeed");
-                    byte[] iv = android.util.Base64.decode(doc.getString("iv"), android.util.Base64.DEFAULT);
-                    byte[] salt = android.util.Base64.decode(doc.getString("salt"), android.util.Base64.DEFAULT);
-
-                    SecretKey key = CryptoHelper.deriveKey(walletPassword, salt);
-                    String mnemonic = CryptoHelper.decrypt(encryptedSeed, key, iv);
-                    callback.onSeedReady(mnemonic);
-                } catch (Exception e) {
-                    callback.onError("Password de wallet incorrecto");
-                }
-            } else {
-                callback.onError("No se encontró backup en la nube");
+        final boolean[] finished = {false};
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        Runnable timeoutRunnable = () -> {
+            if (!finished[0]) {
+                finished[0] = true;
+                callback.onError("Timeout al descargar copia de seguridad.");
             }
-        }).addOnFailureListener(e -> callback.onError(e.getMessage()));
+        };
+        handler.postDelayed(timeoutRunnable, 10000);
+
+        db.collection("users").document(uid).get()
+            .addOnSuccessListener(doc -> {
+                if (!finished[0]) {
+                    finished[0] = true;
+                    handler.removeCallbacks(timeoutRunnable);
+                    if (doc.exists()) {
+                        try {
+                            String encryptedSeed = doc.getString("encryptedSeed");
+                            byte[] iv = android.util.Base64.decode(doc.getString("iv"), android.util.Base64.DEFAULT);
+                            byte[] salt = android.util.Base64.decode(doc.getString("salt"), android.util.Base64.DEFAULT);
+
+                            SecretKey key = CryptoHelper.deriveKey(walletPassword, salt);
+                            String mnemonic = CryptoHelper.decrypt(encryptedSeed, key, iv);
+                            callback.onSeedReady(mnemonic);
+                        } catch (Exception e) {
+                            callback.onError("Password de wallet incorrecto");
+                        }
+                    } else {
+                        callback.onError("No se encontró backup en la nube");
+                    }
+                }
+            })
+            .addOnFailureListener(e -> {
+                if (!finished[0]) {
+                    finished[0] = true;
+                    handler.removeCallbacks(timeoutRunnable);
+                    callback.onError(e.getMessage());
+                }
+            });
     }
 
     public void saveTransaction(TransactionRecord transaction) {
@@ -143,16 +179,39 @@ public class AuthManager {
 
     public void getTransactions(TransactionsCallback callback) {
         FirebaseUser user = auth.getCurrentUser();
-        if (user == null) return;
+        if (user == null) {
+            callback.onError("Usuario no autenticado");
+            return;
+        }
+
+        final boolean[] finished = {false};
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        Runnable timeoutRunnable = () -> {
+            if (!finished[0]) {
+                finished[0] = true;
+                callback.onError("Timeout al cargar transacciones.");
+            }
+        };
+        handler.postDelayed(timeoutRunnable, 10000);
 
         db.collection("users").document(user.getUid())
                 .collection("transactions")
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .get()
                 .addOnSuccessListener(queryDocumentSnapshots -> {
-                    callback.onTransactionsLoaded(queryDocumentSnapshots.toObjects(TransactionRecord.class));
+                    if (!finished[0]) {
+                        finished[0] = true;
+                        handler.removeCallbacks(timeoutRunnable);
+                        callback.onTransactionsLoaded(queryDocumentSnapshots.toObjects(TransactionRecord.class));
+                    }
                 })
-                .addOnFailureListener(e -> callback.onError(e.getMessage()));
+                .addOnFailureListener(e -> {
+                    if (!finished[0]) {
+                        finished[0] = true;
+                        handler.removeCallbacks(timeoutRunnable);
+                        callback.onError(e.getMessage());
+                    }
+                });
     }
 
     private void saveEncryptedSeed(String uid, String walletPassword, String mnemonic, Runnable onSuccess, ErrorListener onError) {
@@ -171,9 +230,31 @@ public class AuthManager {
             data.put("iv", android.util.Base64.encodeToString(iv, android.util.Base64.DEFAULT));
             data.put("salt", android.util.Base64.encodeToString(salt, android.util.Base64.DEFAULT));
 
+            final boolean[] finished = {false};
+            android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+            Runnable timeoutRunnable = () -> {
+                if (!finished[0]) {
+                    finished[0] = true;
+                    onError.onError("Timeout al guardar copia de seguridad en Firestore. Verifica que tu base de datos exista y esté activa.");
+                }
+            };
+            handler.postDelayed(timeoutRunnable, 10000);
+
             db.collection("users").document(uid).set(data)
-                .addOnSuccessListener(aVoid -> onSuccess.run())
-                .addOnFailureListener(e -> onError.onError(e.getMessage()));
+                .addOnSuccessListener(aVoid -> {
+                    if (!finished[0]) {
+                        finished[0] = true;
+                        handler.removeCallbacks(timeoutRunnable);
+                        onSuccess.run();
+                    }
+                })
+                .addOnFailureListener(e -> {
+                    if (!finished[0]) {
+                        finished[0] = true;
+                        handler.removeCallbacks(timeoutRunnable);
+                        onError.onError(e.getMessage());
+                    }
+                });
         } catch (Exception e) {
             onError.onError("Error cifrando semilla: " + e.getMessage());
         }

@@ -23,6 +23,7 @@ public class BitcoinRpcClient {
     private static BitcoinRpcClient instance;
     private final BitcoinRpcService service;
     private final String authHeader;
+    private final Retrofit retrofit;
 
     private BitcoinRpcClient() {
         HttpLoggingInterceptor logging = new HttpLoggingInterceptor();
@@ -32,7 +33,7 @@ public class BitcoinRpcClient {
                 .addInterceptor(logging)
                 .build();
 
-        Retrofit retrofit = new Retrofit.Builder()
+        retrofit = new Retrofit.Builder()
                 .baseUrl(Constants.RPC_BASE_URL)
                 .addConverterFactory(MoshiConverterFactory.create())
                 .client(client)
@@ -41,6 +42,10 @@ public class BitcoinRpcClient {
         service = retrofit.create(BitcoinRpcService.class);
         // RegTest credentials for the local server
         authHeader = Credentials.basic("admin", "admin123");
+    }
+
+    public Retrofit getRetrofit() {
+        return retrofit;
     }
 
     public static synchronized BitcoinRpcClient getInstance() {

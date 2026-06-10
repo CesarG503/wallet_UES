@@ -14,10 +14,13 @@ public class BiometricHelper {
         void onError(String error);
     }
 
-    public static boolean isBiometricAvailable(FragmentActivity activity) {
+    public static boolean isBiometricOrPinAvailable(FragmentActivity activity) {
         BiometricManager biometricManager = BiometricManager.from(activity);
-        return biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) 
-                == BiometricManager.BIOMETRIC_SUCCESS;
+        int result = biometricManager.canAuthenticate(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG | 
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        );
+        return result == BiometricManager.BIOMETRIC_SUCCESS;
     }
 
     public static void showPrompt(FragmentActivity activity, BiometricCallback callback) {
@@ -39,8 +42,11 @@ public class BiometricHelper {
 
         BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
                 .setTitle("Verifica tu identidad")
-                .setSubtitle("Usa tu huella para acceder a tu Viper Wallet")
-                .setNegativeButtonText("Cancelar")
+                .setSubtitle("Usa tu huella, FaceID o PIN para acceder a tu Viper Wallet")
+                .setAllowedAuthenticators(
+                        BiometricManager.Authenticators.BIOMETRIC_STRONG | 
+                        BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                )
                 .build();
 
         biometricPrompt.authenticate(promptInfo);
