@@ -128,8 +128,18 @@ public class AuthManager {
         });
     }
 
+    /** Guarda semilla cifrada sin nickname (compatibilidad). */
     public void saveNewWalletForExistingUser(String uid, String walletPassword, String mnemonic, Runnable onSuccess, ErrorListener onError) {
-        saveEncryptedSeed(uid, walletPassword, mnemonic, onSuccess, onError);
+        saveEncryptedSeed(uid, walletPassword, mnemonic, "", onSuccess, onError);
+    }
+
+    /**
+     * Guarda semilla cifrada incluyendo el nickname del usuario.
+     * @param aesPassword Contraseña de WALLET (diferente a la de cuenta Firebase).
+     * @param nickname    Apodo personal del usuario (no aparece en transacciones).
+     */
+    public void saveNewWalletForExistingUser(String uid, String aesPassword, String mnemonic, String nickname, Runnable onSuccess, ErrorListener onError) {
+        saveEncryptedSeed(uid, aesPassword, mnemonic, nickname != null ? nickname : "", onSuccess, onError);
     }
 
     public void login(String email, String password, AuthCallback callback) {
@@ -296,7 +306,7 @@ public class AuthManager {
         });
     }
 
-    private void saveEncryptedSeed(String uid, String walletPassword, String mnemonic, Runnable onSuccess, ErrorListener onError) {
+    private void saveEncryptedSeed(String uid, String walletPassword, String mnemonic, String nickname, Runnable onSuccess, ErrorListener onError) {
         try {
             FirebaseUser user = auth.getCurrentUser();
             byte[] salt = CryptoHelper.getSalt();
@@ -307,6 +317,7 @@ public class AuthManager {
             Map<String, Object> data = new HashMap<>();
             data.put("uid", uid);
             data.put("email", user != null ? user.getEmail() : "");
+            data.put("nickname", nickname);  // Apodo personal, solo visible para el usuario
             data.put("createdAt", System.currentTimeMillis());
             data.put("encryptedSeed", encryptedSeed);
             data.put("iv", android.util.Base64.encodeToString(iv, android.util.Base64.DEFAULT));

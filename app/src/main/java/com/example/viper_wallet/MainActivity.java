@@ -243,7 +243,6 @@ public class MainActivity extends AppCompatActivity {
                             dialog.dismiss();
                             Toast.makeText(MainActivity.this,
                                     getString(R.string.wallet_restore_success), Toast.LENGTH_SHORT).show();
-                            displaySeedDialog(mnemonic);
                             showDashboard();
                         }
 
@@ -669,7 +668,7 @@ public class MainActivity extends AppCompatActivity {
         layout.addView(etAmount);
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle("Send VPR (RegTest)")
+                .setTitle("Send UESCoin (RegTest)")
                 .setView(layout)
                 .setPositiveButton("Send", (dialogInterface, which) -> {
                     String address = etAddress.getText().toString();

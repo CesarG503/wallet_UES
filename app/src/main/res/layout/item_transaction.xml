@@ -55,7 +55,7 @@
             android:layout_height="wrap_content"
             android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
             android:textStyle="bold"
-            tools:text="-0.005 VPR" />
+            tools:text="-0.005 UESCoin" />
 
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

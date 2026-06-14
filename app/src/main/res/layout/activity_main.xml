@@ -22,8 +22,7 @@
             android:layout_width="120dp"
             android:layout_height="120dp"
             android:layout_marginBottom="24dp"
-            android:src="@android:drawable/ic_lock_lock"
-            app:tint="?attr/colorPrimary" />
+            android:src="@drawable/logo" />
 
         <TextView
             android:layout_width="wrap_content"
@@ -73,20 +72,21 @@
                 <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical">
-                    <TextView
+                    android:orientation="vertical"
+                    android:gravity="start">
+
+                    <ImageView
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/welcome_title"
-                        android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
-                        android:textStyle="bold" />
+                        android:layout_height="60dp"
+                        android:adjustViewBounds="true"
+                        android:src="@drawable/logo2"
+                        android:contentDescription="Wallet UES Logo" />
+
                     <TextView
                         android:id="@+id/tvNetwork"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textAppearance="@style/TextAppearance.Material3.LabelSmall"
-                        android:alpha="0.6"
-                        tools:text="Viper RegTest" />
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
@@ -98,14 +98,14 @@
                     app:icon="@android:drawable/ic_menu_info_details" />
             </RelativeLayout>
 
-            <!-- Balance Card -->
+             <!-- Balance Card -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 app:cardCornerRadius="24dp"
                 app:cardElevation="0dp"
-                app:cardBackgroundColor="?attr/colorPrimaryContainer">
+                app:cardBackgroundColor="@color/card_black_intense">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -117,6 +117,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/total_balance"
+                        android:textColor="#A0AEC0"
                         android:textAppearance="@style/TextAppearance.Material3.LabelLarge" />
 
                     <TextView
@@ -124,7 +125,8 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="0.00000000 VPR"
+                        android:text="0.00000000 UESCoin"
+                        android:textColor="@color/white"
                         android:textAppearance="@style/TextAppearance.Material3.HeadlineLarge"
                         android:textStyle="bold" />
 
@@ -133,8 +135,8 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0 sats"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                        android:alpha="0.7" />
+                        android:textColor="#718096"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

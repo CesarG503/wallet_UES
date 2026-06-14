@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paso 3: Mostrar las 12 palabras semilla con grid 3x4 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:paddingHorizontal="24dp"
+    android:paddingTop="16dp"
+    android:paddingBottom="32dp">
+
+    <!-- Estado de carga (mientras se genera la wallet) -->
+    <LinearLayout
+        android:id="@+id/loadingContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="visible">
+
+        <ProgressBar
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:indeterminateTint="?attr/colorPrimary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/reg_generating"
+            android:textSize="16sp"
+            android:textColor="?attr/colorOnBackground" />
+    </LinearLayout>
+
+    <!-- Contenido de las palabras (visible cuando la wallet está generada) -->
+    <ScrollView
+        android:id="@+id/seedContent"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- Título -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/reg_step3_title"
+                android:textAppearance="@style/TextAppearance.Material3.DisplaySmall"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnBackground" />
+
+            <!-- Advertencia -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:layout_marginBottom="24dp"
+                android:text="@string/reg_step3_warning"
+                android:textSize="14sp"
+                android:textColor="#E53E3E"
+                android:lineSpacingMultiplier="1.3" />
+
+            <!-- Grid 3 columnas x 4 filas de palabras -->
+            <!-- Fila 1 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="10dp">
+                <LinearLayout android:id="@+id/word1" style="@style/SeedWordCell" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"><TextView android:id="@+id/tvWordNum1" style="@style/SeedWordNum" /><TextView android:id="@+id/tvWord1" style="@style/SeedWordText" /></LinearLayout>
+                <Space android:layout_width="8dp" android:layout_height="1dp" />
+                <LinearLayout android:id="@+id/word2" style="@style/SeedWordCell" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"><TextView android:id="@+id/tvWordNum2" style="@style/SeedWordNum" /><TextView android:id="@+id/tvWord2" style="@style/SeedWordText" /></LinearLayout>
+                <Space android:layout_width="8dp" android:layout_height="1dp" />
+                <LinearLayout android:id="@+id/word3" style="@style/SeedWordCell" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"><TextView android:id="@+id/tvWordNum3" style="@style/SeedWordNum" /><TextView android:id="@+id/tvWord3" style="@style/SeedWordText" /></LinearLayout>
+            </LinearLayout>
+            <!-- Fila 2 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="10dp">
+                <LinearLayout android:id="@+id/word4" style="@style/SeedWordCell" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"><TextView android:id="@+id/tvWordNum4" style="@style/SeedWordNum" /><TextView android:id="@+id/tvWord4" style="@style/SeedWordText" /></LinearLayout>
+                <Space android:layout_width="8dp" android:layout_height="1dp" />
+                <LinearLayout android:id="@+id/word5" style="@style/SeedWordCell" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"><TextView android:id="@+id/tvWordNum5" style="@style/SeedWordNum" /><TextView android:id="@+id/tvWord5" style="@style/SeedWordText" /></LinearLayout>
+                <Space android:layout_width="8dp" android:layout_height="1dp" />
+                <LinearLayout android:id="@+id/word6" style="@style/SeedWordCell" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"><TextView android:id="@+id/tvWordNum6" style="@style/SeedWordNum" /><TextView android:id="@+id/tvWord6" style="@style/SeedWordText" /></LinearLayout>
+            </LinearLayout>
+            <!-- Fila 3 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="10dp">
+                <LinearLayout android:id="@+id/word7" style="@style/SeedWordCell" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"><TextView android:id="@+id/tvWordNum7" style="@style/SeedWordNum" /><TextView android:id="@+id/tvWord7" style="@style/SeedWordText" /></LinearLayout>
+                <Space android:layout_width="8dp" android:layout_height="1dp" />
+                <LinearLayout android:id="@+id/word8" style="@style/SeedWordCell" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"><TextView android:id="@+id/tvWordNum8" style="@style/SeedWordNum" /><TextView android:id="@+id/tvWord8" style="@style/SeedWordText" /></LinearLayout>
+                <Space android:layout_width="8dp" android:layout_height="1dp" />
+                <LinearLayout android:id="@+id/word9" style="@style/SeedWordCell" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"><TextView android:id="@+id/tvWordNum9" style="@style/SeedWordNum" /><TextView android:id="@+id/tvWord9" style="@style/SeedWordText" /></LinearLayout>
+            </LinearLayout>
+            <!-- Fila 4 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="16dp">
+                <LinearLayout android:id="@+id/word10" style="@style/SeedWordCell" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"><TextView android:id="@+id/tvWordNum10" style="@style/SeedWordNum" /><TextView android:id="@+id/tvWord10" style="@style/SeedWordText" /></LinearLayout>
+                <Space android:layout_width="8dp" android:layout_height="1dp" />
+                <LinearLayout android:id="@+id/word11" style="@style/SeedWordCell" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"><TextView android:id="@+id/tvWordNum11" style="@style/SeedWordNum" /><TextView android:id="@+id/tvWord11" style="@style/SeedWordText" /></LinearLayout>
+                <Space android:layout_width="8dp" android:layout_height="1dp" />
+                <LinearLayout android:id="@+id/word12" style="@style/SeedWordCell" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"><TextView android:id="@+id/tvWordNum12" style="@style/SeedWordNum" /><TextView android:id="@+id/tvWord12" style="@style/SeedWordText" /></LinearLayout>
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Acciones (fijas en la parte inferior) -->
+    <LinearLayout
+        android:id="@+id/actionsContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <!-- Copiar al portapapeles -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCopy"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="@string/reg_step3_copy"
+            android:textColor="?attr/colorPrimary"
+            app:strokeColor="?attr/colorPrimary"
+            app:cornerRadius="24dp" />
+
+        <!-- Checkbox de confirmación -->
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/checkboxSaved"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/reg_step3_checkbox"
+            android:textSize="13sp"
+            android:lineSpacingMultiplier="1.3"
+            app:buttonTint="?attr/colorPrimary" />
+
+        <!-- Botón continuar -->
+        <Button
+            android:id="@+id/btnContinue"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="16dp"
+            android:text="@string/reg_step3_btn"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnPrimary"
+            android:backgroundTint="?attr/colorPrimary"
+            android:enabled="false"
+            android:stateListAnimator="@null"
+            style="@style/Widget.Material3.Button"
+            app:cornerRadius="28dp" />
+
+    </LinearLayout>
+
+</LinearLayout>

@@ -7,8 +7,8 @@ public class Constants {
     public static final NetworkParameters NETWORK_PARAMETERS = RegTestParams.get();
 
     public static final String NETWORK_NAME = "regtest";
-    public static final String COIN_TICKER = "VPR";
-    public static final String COIN_DISPLAY_NAME = "Viper";
+    public static final String COIN_TICKER = "UESCoin";
+    public static final String COIN_DISPLAY_NAME = "UESCoin";
 
     public static final String NODE_HOST = "217.216.51.62";
     public static final int NODE_P2P_PORT = 18444;

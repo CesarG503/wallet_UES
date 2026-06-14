@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Primary - Viper Green -->
-    <color name="primary">#2ECC71</color>
+    <!-- Primary - Neutral, Premium Forest/Emerald Green -->
+    <color name="primary">#1B8A5A</color>
     <color name="onPrimary">#FFFFFF</color>
-    <color name="primaryContainer">#D5F5E3</color>
-    <color name="onPrimaryContainer">#186A3B</color>
+    <color name="primaryContainer">#E2F4EB</color>
+    <color name="onPrimaryContainer">#0D4F32</color>
 
     <!-- Secondary - Darker Green/Gray -->
     <color name="secondary">#273746</color>
@@ -23,9 +23,12 @@
     <color name="onSurface">#1C1B1F</color>
 
     <!-- Dark Mode Overrides (used in values-night) -->
-    <color name="primary_dark">#58D68D</color>
+    <color name="primary_dark">#52B788</color>
     <color name="background_dark">#121212</color>
     <color name="surface_dark">#1E1E1E</color>
+
+    <!-- Custom Card Blacks -->
+    <color name="card_black_intense">#080A0F</color>
 
     <!-- Utils -->
     <color name="black">#FF000000</color>

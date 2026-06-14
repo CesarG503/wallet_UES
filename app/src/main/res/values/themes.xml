@@ -15,4 +15,31 @@
     </style>
 
     <style name="Theme.Viper_wallet" parent="Base.Theme.Viper_wallet" />
+
+    <!-- Estilos para las celdas de palabras semilla -->
+    <style name="SeedWordCell">
+        <item name="android:orientation">vertical</item>
+        <item name="android:gravity">center</item>
+        <item name="android:padding">10dp</item>
+        <item name="android:background">@drawable/bg_seed_word_card</item>
+        <item name="android:minHeight">60dp</item>
+    </style>
+
+    <style name="SeedWordNum">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">10sp</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+        <item name="android:alpha">0.7</item>
+    </style>
+
+    <style name="SeedWordText">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:gravity">center</item>
+    </style>
+
 </resources>

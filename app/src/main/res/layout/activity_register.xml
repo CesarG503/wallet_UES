@@ -1,140 +1,91 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+    RegisterActivity — contenedor de los 3 Fragments.
+    Solo tiene: toolbar con back + dots de progreso + FragmentContainerView.
+    Todos los botones y contenido viven dentro de los Fragments.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
+    android:orientation="vertical"
+    android:background="?android:attr/windowBackground"
     tools:context=".auth.RegisterActivity">
 
+    <!-- ── Toolbar ── -->
     <LinearLayout
+        android:id="@+id/registerToolbar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="24dp"
-        android:gravity="center_horizontal">
+        android:layout_height="64dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp">
 
-        <!-- Ícono -->
-        <ImageView
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:layout_marginTop="56dp"
-            android:layout_marginBottom="16dp"
-            android:src="@android:drawable/ic_lock_lock"
-            app:tint="?attr/colorPrimary" />
+        <!-- Botón atrás -->
+        <ImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_arrow_back"
+            android:contentDescription="Atrás"
+            app:tint="?attr/colorOnBackground"
+            android:visibility="invisible" />
 
-        <!-- Título -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/title_register"
-            android:textAppearance="@style/TextAppearance.Material3.HeadlineLarge"
-            android:textStyle="bold" />
+        <!-- Spacer -->
+        <Space android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="32dp"
-            android:text="Crea tu cuenta y genera tu wallet segura"
-            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-            android:alpha="0.6" />
-
-        <!-- Email -->
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/tilEmail"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="@string/hint_email">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etEmail"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="textEmailAddress" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <!-- Contraseña de cuenta Firebase -->
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/tilPassword"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:hint="@string/hint_password"
-            app:helperText="Mínimo 6 caracteres"
-            app:endIconMode="password_toggle">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etPassword"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="textPassword" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <!-- Botón Crear Cuenta con Email -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnRegister"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:layout_marginTop="24dp"
-            android:text="Crear Cuenta con Email"
-            app:cornerRadius="12dp" />
-
-        <!-- Divider "O" -->
+        <!-- Dots de progreso — 4 pasos -->
         <LinearLayout
-            android:layout_width="match_parent"
+            android:id="@+id/dotsContainer"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:layout_marginBottom="8dp"
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
             <View
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1"
-                android:background="?attr/colorOutlineVariant" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingHorizontal="14dp"
-                android:text="O"
-                android:textAppearance="@style/TextAppearance.Material3.LabelMedium"
-                android:alpha="0.55" />
+                android:id="@+id/dot1"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginHorizontal="4dp"
+                android:background="@drawable/bg_step_dot_active" />
 
             <View
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1"
-                android:background="?attr/colorOutlineVariant" />
+                android:id="@+id/dot2"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginHorizontal="4dp"
+                android:background="@drawable/bg_step_dot_inactive" />
+
+            <View
+                android:id="@+id/dot3"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginHorizontal="4dp"
+                android:background="@drawable/bg_step_dot_inactive" />
+
+            <View
+                android:id="@+id/dot4"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginHorizontal="4dp"
+                android:background="@drawable/bg_step_dot_inactive" />
         </LinearLayout>
 
-        <!-- Google Register Button -->
-        <com.google.android.gms.common.SignInButton
-            android:id="@+id/btnGoogleRegister"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp" />
+        <!-- Spacer derecho para equilibrar -->
+        <Space android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
 
-        <!-- Link a Login -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnLoginLink"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/already_have_account" />
-
-        <!-- ProgressBar -->
-        <ProgressBar
-            android:id="@+id/progressBar"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:visibility="gone" />
+        <!-- Placeholder del mismo tamaño que btnBack para centrar los dots -->
+        <Space android:layout_width="40dp" android:layout_height="40dp" />
 
     </LinearLayout>
-</ScrollView>
+
+    <!-- ── Contenedor de Fragments ── -->
+    <androidx.fragment.app.FragmentContainerView
+        android:id="@+id/registerFragmentContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+</LinearLayout>

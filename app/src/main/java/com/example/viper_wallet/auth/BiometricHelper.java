@@ -42,7 +42,7 @@ public class BiometricHelper {
 
         BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
                 .setTitle("Verifica tu identidad")
-                .setSubtitle("Usa tu huella, FaceID o PIN para acceder a tu Viper Wallet")
+                .setSubtitle("Usa tu huella, FaceID o PIN para acceder a tu Wallet UES")
                 .setAllowedAuthenticators(
                         BiometricManager.Authenticators.BIOMETRIC_STRONG | 
                         BiometricManager.Authenticators.DEVICE_CREDENTIAL

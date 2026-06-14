@@ -1,7 +1,7 @@
 <resources>
-    <string name="app_name">Viper Wallet</string>
-    <string name="welcome_title">Viper Wallet</string>
-    <string name="welcome_subtitle">Tu billetera para Viper RegTest. Privado, rápido y moderno.</string>
+    <string name="app_name">Wallet UES</string>
+    <string name="welcome_title">Wallet UES</string>
+    <string name="welcome_subtitle">Tu billetera para UES RegTest. Privado, rápido y moderno.</string>
     <string name="btn_generate_wallet">Generar Nueva Wallet</string>
     <string name="btn_restore_wallet">Ya tengo una semilla</string>
     <string name="total_balance">Balance Total</string>
@@ -17,7 +17,7 @@
     <string name="error_creating_wallet">Error al crear la wallet</string>
     <string name="seed_phrase_title">Tu Semilla de Respaldo</string>
     <string name="seed_phrase_warning">Escribe estas 12 palabras en un lugar seguro. No las compartas con nadie.</string>
-    <string name="receive_address_message">Dirección RegTest para recibir VPR:</string>
+    <string name="receive_address_message">Dirección RegTest para recibir UESCoin:</string>
     <string name="feature_coming_soon">Funcionalidad próximamente</string>
     <string name="btn_done">Hecho</string>
 
@@ -26,7 +26,7 @@
     <string name="title_login">Iniciar Sesión</string>
     <string name="hint_email">Correo Electrónico</string>
     <string name="hint_password">Contraseña de Cuenta</string>
-    <string name="hint_wallet_password">Contraseña de la Billetera (AES)</string>
+    <string name="hint_wallet_password">Contraseña de cifrado (AES)</string>
     <string name="helper_wallet_password">Esta contraseña se usa para cifrar tu semilla en la nube. ¡No la pierdas!</string>
     <string name="btn_register">Registrar y Crear Wallet</string>
     <string name="btn_login">Entrar</string>
@@ -35,10 +35,51 @@
     <string name="prompt_wallet_password">Ingresa el password de tu wallet</string>
     <string name="wallet_restore_success">Wallet restaurada exitosamente</string>
 
+    <!-- Register Step Flow -->
+    <string name="reg_step1_title">Crea tu cuenta</string>
+    <string name="reg_step1_subtitle">Estas credenciales te servirán para iniciar sesión</string>
+    <string name="reg_step1_hint_email">Correo electrónico</string>
+    <string name="reg_step1_hint_password">Contraseña de cuenta</string>
+    <string name="reg_step1_password_note">Esta contraseña es para acceder a la app. Tu wallet tendrá una diferente.</string>
+    <string name="reg_step1_error_email_invalid">Ingresa un correo electrónico válido</string>
+    <string name="reg_step1_error_email_exists">Este correo ya tiene una cuenta. ¿Quieres iniciar sesión?</string>
+    <string name="reg_step1_btn_next">Siguiente</string>
+    <string name="reg_req_length">Mínimo 6 caracteres</string>
+    <string name="reg_req_upper">Una letra mayúscula</string>
+    <string name="reg_req_lower">Una letra minúscula</string>
+    <string name="reg_req_number">Un número</string>
+    <string name="reg_req_symbol">Un carácter especial (!@#$…)</string>
+
+    <!-- Paso 2: Nickname -->
+    <string name="reg_step2_title">¿Cómo te llamamos?</string>
+    <string name="reg_step2_subtitle">Tu apodo es solo para ti. No aparecerá en ninguna transacción.</string>
+    <string name="reg_step2_hint_nickname">Tu apodo (ej. Lobo, Satoshi…)</string>
+    <string name="reg_step2_btn_next">Continuar</string>
+    <string name="reg_step2_nickname_too_short">El apodo debe tener al menos 2 caracteres</string>
+
+    <!-- Paso 3: Semilla -->
+    <string name="reg_step3_title">Tu frase semilla</string>
+    <string name="reg_step3_warning">⚠️ Guarda estas 12 palabras en papel AHORA. Sin ellas no podrás recuperar tus fondos.</string>
+    <string name="reg_step3_copy">Copiar palabras</string>
+    <string name="reg_step3_copied">Palabras copiadas</string>
+    <string name="reg_step3_checkbox">Entiendo que sin estas palabras pierdo mis fondos permanentemente</string>
+    <string name="reg_step3_btn">Ya las guardé, continuar</string>
+    <string name="reg_generating">Generando tu wallet…</string>
+
+    <!-- Paso 4: Contraseña AES -->
+    <string name="reg_step4_title">Contraseña de wallet</string>
+    <string name="reg_step4_subtitle">Esta contraseña cifra tu semilla con AES-256 antes de guardarla en la nube.\n\n⚠️ Es completamente diferente a tu contraseña de cuenta. Guárdala en un lugar seguro.</string>
+    <string name="reg_step4_hint">Contraseña de wallet (mín. 8 chars)</string>
+    <string name="reg_step4_btn">Crear Wallet</string>
+    <string name="reg_req_aes_length">Mínimo 8 caracteres</string>
+    <string name="reg_creating">Creando tu wallet…</string>
+
     <!-- Profile Strings -->
     <string name="title_profile">Mi Perfil</string>
+    <string name="label_nickname">Apodo:</string>
     <string name="label_uid">ID de Usuario:</string>
     <string name="label_email">Email:</string>
     <string name="btn_logout">Cerrar Sesión</string>
     <string name="security_auth_required">Se requiere autenticación para ver la semilla</string>
 </resources>
+
