@@ -213,12 +213,13 @@
                         android:textColor="?attr/colorOnSurface"
                         android:textSize="16sp"
                         android:textStyle="bold"
-                        app:strokeColor="?attr/colorOutlineVariant"
-                        app:strokeWidth="1dp"
+                        app:cornerRadius="12dp"
                         app:icon="@drawable/ic_google"
+                        app:iconTint="@null"
                         app:iconGravity="textStart"
                         app:iconSize="22dp"
-                        app:cornerRadius="12dp" />
+                        app:strokeColor="?attr/colorOutlineVariant"
+                        app:strokeWidth="1dp" />
 
                     <!-- Link a Registro -->
                     <com.google.android.material.button.MaterialButton

@@ -59,7 +59,7 @@
 
     <!-- Paso 3: Semilla -->
     <string name="reg_step3_title">Tu frase semilla</string>
-    <string name="reg_step3_warning">⚠️ Guarda estas 12 palabras en papel AHORA. Sin ellas no podrás recuperar tus fondos.</string>
+    <string name="reg_step3_warning">Guarda estas 12 palabras en papel. Sin ellas no podrás recuperar tus fondos.</string>
     <string name="reg_step3_copy">Copiar palabras</string>
     <string name="reg_step3_copied">Palabras copiadas</string>
     <string name="reg_step3_checkbox">Entiendo que sin estas palabras pierdo mis fondos permanentemente</string>
@@ -68,7 +68,7 @@
 
     <!-- Paso 4: Contraseña AES -->
     <string name="reg_step4_title">Contraseña de wallet</string>
-    <string name="reg_step4_subtitle">Esta contraseña cifra tu semilla con AES-256 antes de guardarla en la nube.\n\n⚠️ Es completamente diferente a tu contraseña de cuenta. Guárdala en un lugar seguro.</string>
+    <string name="reg_step4_subtitle">Esta contraseña cifra tu semilla con AES-256 antes de guardarla en la nube, procura que sea unica..</string>
     <string name="reg_step4_hint">Contraseña de wallet (mín. 8 chars)</string>
     <string name="reg_step4_btn">Crear Wallet</string>
     <string name="reg_req_aes_length">Mínimo 8 caracteres</string>

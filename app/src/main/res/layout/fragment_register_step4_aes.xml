@@ -15,73 +15,27 @@
         android:paddingBottom="32dp">
 
         <!-- Título -->
+
+        <!-- Subtítulo diferenciador -->
+
+        <!-- Advertencia visual — caja de diferenciación -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/reg_step4_title"
             android:textAppearance="@style/TextAppearance.Material3.DisplaySmall"
-            android:textStyle="bold"
-            android:textColor="?attr/colorOnSurface" />
+            android:textColor="?attr/colorOnSurface"
+            android:textStyle="bold" />
 
-        <!-- Subtítulo diferenciador -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:layout_marginBottom="16dp"
-            android:text="@string/reg_step4_subtitle"
-            android:textSize="14sp"
             android:lineSpacingMultiplier="1.4"
-            android:textColor="?attr/colorOnSurfaceVariant" />
-
-        <!-- Advertencia visual — caja de diferenciación -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="0dp"
-            app:strokeWidth="1.5dp"
-            app:strokeColor="?attr/colorPrimary"
-            app:cardBackgroundColor="?attr/colorPrimaryContainer">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="14dp"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="🔐"
-                    android:textSize="20sp"
-                    android:layout_marginEnd="10dp" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Contraseña de WALLET"
-                        android:textSize="13sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorOnPrimaryContainer" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="NO es la misma que usas para iniciar sesión"
-                        android:textSize="12sp"
-                        android:textColor="?attr/colorOnPrimaryContainer" />
-                </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+            android:text="@string/reg_step4_subtitle"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textSize="14sp" />
 
         <!-- ── Campo Contraseña de Wallet (AES) ── -->
         <com.google.android.material.textfield.TextInputLayout
