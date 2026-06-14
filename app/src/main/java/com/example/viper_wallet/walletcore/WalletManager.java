@@ -78,11 +78,14 @@ public class WalletManager {
 
     public void reset() {
         if (peerGroup != null) {
-            try {
-                peerGroup.stop();
-            } catch (Exception e) {
-                Log.e(TAG, "Error stopping peerGroup during reset", e);
-            }
+            final PeerGroup tempGroup = peerGroup;
+            syncExecutor.execute(() -> {
+                try {
+                    tempGroup.stop();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error stopping peerGroup during reset", e);
+                }
+            });
             peerGroup = null;
         }
         wallet = null;

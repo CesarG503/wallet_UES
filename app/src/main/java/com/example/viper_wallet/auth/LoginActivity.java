@@ -167,10 +167,39 @@ public class LoginActivity extends AppCompatActivity {
         authManager.signInWithGoogle(idToken, new AuthManager.AuthCallback() {
             @Override
             public void onSuccess(FirebaseUser user) {
-                setLoading(false);
-                biometricTriggered = true;
-                showBiometricWaitState();
-                requestBiometrics();
+                // Verificar si la cuenta ya tiene una wallet registrada en Realtime Database
+                authManager.checkUserExists(user.getUid(), new AuthManager.CheckUserCallback() {
+                    @Override
+                    public void onResult(boolean exists) {
+                        if (!exists) {
+                            // No tiene wallet en la nube -> cerrar sesión y no permitir entrada
+                            FirebaseAuth.getInstance().signOut();
+                            mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
+                                setLoading(false);
+                                Toast.makeText(LoginActivity.this,
+                                        "No se encontró una wallet asociada. Por favor regístrate.",
+                                        Toast.LENGTH_LONG).show();
+                            });
+                        } else {
+                            // Sí existe la wallet -> permitir entrada
+                            setLoading(false);
+                            biometricTriggered = true;
+                            showBiometricWaitState();
+                            requestBiometrics();
+                        }
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        FirebaseAuth.getInstance().signOut();
+                        mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
+                            setLoading(false);
+                            Toast.makeText(LoginActivity.this,
+                                    "Error al verificar cuenta: " + message,
+                                    Toast.LENGTH_LONG).show();
+                        });
+                    }
+                });
             }
 
             @Override
@@ -198,10 +227,35 @@ public class LoginActivity extends AppCompatActivity {
         authManager.login(email, password, new AuthManager.AuthCallback() {
             @Override
             public void onSuccess(FirebaseUser user) {
-                setLoading(false);
-                biometricTriggered = true;
-                showBiometricWaitState();
-                requestBiometrics();
+                // Verificar si la cuenta ya tiene una wallet registrada en Realtime Database
+                authManager.checkUserExists(user.getUid(), new AuthManager.CheckUserCallback() {
+                    @Override
+                    public void onResult(boolean exists) {
+                        if (!exists) {
+                            // No tiene wallet en la nube -> cerrar sesión y no permitir entrada
+                            FirebaseAuth.getInstance().signOut();
+                            setLoading(false);
+                            Toast.makeText(LoginActivity.this,
+                                    "No se encontró una wallet asociada. Por favor regístrate.",
+                                    Toast.LENGTH_LONG).show();
+                        } else {
+                            // Sí existe la wallet -> permitir entrada
+                            setLoading(false);
+                            biometricTriggered = true;
+                            showBiometricWaitState();
+                            requestBiometrics();
+                        }
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        FirebaseAuth.getInstance().signOut();
+                        setLoading(false);
+                        Toast.makeText(LoginActivity.this,
+                                "Error al verificar cuenta: " + message,
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
             }
 
             @Override
