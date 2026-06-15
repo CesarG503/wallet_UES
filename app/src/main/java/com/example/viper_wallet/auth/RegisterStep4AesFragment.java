@@ -163,6 +163,7 @@ public class RegisterStep4AesFragment extends Fragment {
                             // 3. Sign out y volver al Login
                             if (!isAdded()) return;
                             setLoading(false);
+                            walletManager.saveWalletPasswordSecurely(user.getUid(), aesPassword);
                             FirebaseAuth.getInstance().signOut();
                             Toast.makeText(requireContext(),
                                     "¡Registro completo! Ahora inicia sesión.",

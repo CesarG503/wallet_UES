@@ -2,13 +2,20 @@ package com.example.viper_wallet.auth;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.text.InputType;
+import android.view.WindowManager;
+import android.widget.EditText;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.viper_wallet.R;
+import com.example.viper_wallet.walletcore.WalletManager;
 import com.google.android.gms.auth.api.signin.GoogleSignIn;
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.database.DataSnapshot;
@@ -58,7 +65,13 @@ public class ProfileActivity extends AppCompatActivity {
                     }
                 });
 
+        findViewById(R.id.tvViewSeed).setOnClickListener(v -> showSeedPhrase());
+
         findViewById(R.id.btnLogout).setOnClickListener(v -> {
+            FirebaseUser currentUser = FirebaseAuth.getInstance().getCurrentUser();
+            if (currentUser != null) {
+                com.example.viper_wallet.walletcore.WalletManager.getInstance(this).clearSavedWalletPassword(currentUser.getUid());
+            }
             // 1. Cerrar sesión en Firebase
             FirebaseAuth.getInstance().signOut();
 
@@ -75,5 +88,72 @@ public class ProfileActivity extends AppCompatActivity {
                 finish();
             });
         });
+    }
+
+    private void showSeedPhrase() {
+        WalletManager walletManager = WalletManager.getInstance(this);
+        if (walletManager.isEncrypted()) {
+            requestWalletPassword(password -> {
+                walletManager.getMnemonicAsync(password, new WalletManager.MnemonicCallback() {
+                    @Override
+                    public void onSuccess(String mnemonic) {
+                        displaySeedDialog(mnemonic);
+                    }
+
+                    @Override
+                    public void onError(Exception e) {
+                        Toast.makeText(ProfileActivity.this, "Contraseña incorrecta", Toast.LENGTH_SHORT).show();
+                    }
+                });
+            });
+        } else {
+            walletManager.getMnemonicAsync(null, new WalletManager.MnemonicCallback() {
+                @Override
+                public void onSuccess(String mnemonic) {
+                    displaySeedDialog(mnemonic);
+                }
+
+                @Override
+                public void onError(Exception e) {
+                    Toast.makeText(ProfileActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+    }
+
+    private void requestWalletPassword(PasswordCallback callback) {
+        final EditText etWalletPass = new EditText(this);
+        etWalletPass.setHint(R.string.prompt_wallet_password);
+        etWalletPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("Contraseña de Billetera")
+                .setMessage("Se requiere tu contraseña para autorizar esta acción.")
+                .setView(etWalletPass)
+                .setPositiveButton("Confirmar", (dialog, which) -> {
+                    callback.onPasswordEntered(etWalletPass.getText().toString());
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private interface PasswordCallback {
+        void onPasswordEntered(String password);
+    }
+
+    private void displaySeedDialog(String mnemonic) {
+        if (mnemonic == null) return;
+
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.seed_phrase_title)
+                .setMessage(mnemonic + "\n\n" + getString(R.string.seed_phrase_warning))
+                .setPositiveButton(R.string.btn_done, (dialogInterface, which) -> dialogInterface.dismiss())
+                .create();
+
+        dialog.setOnDismissListener(dialogInterface ->
+                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE));
+        dialog.show();
     }
 }

@@ -29,7 +29,11 @@ import androidx.core.graphics.Insets;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.recyclerview.widget.RecyclerView;
+import android.widget.PopupMenu;
+import android.content.Context;
 
+import com.example.viper_wallet.adapters.TransactionAdapter;
 import com.example.viper_wallet.auth.AuthManager;
 import com.example.viper_wallet.auth.LoginActivity;
 import com.example.viper_wallet.auth.ProfileActivity;
@@ -127,6 +131,7 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         if (binding != null && binding.layoutDashboard.getVisibility() == View.VISIBLE) {
             startBalancePolling();
+            loadDashboardTransactions();
         }
         resumeActiveScannerIfPermitted();
     }
@@ -195,10 +200,10 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onError(String message) {
-                // Error de red — mostrar pantalla de fallback
-                showSetup();
+                // Error de red — redirigir a login
                 Toast.makeText(MainActivity.this,
                         "Sin conexión. Verifica tu internet.", Toast.LENGTH_LONG).show();
+                goToLogin();
             }
         });
     }
@@ -241,6 +246,7 @@ public class MainActivity extends AppCompatActivity {
                         @Override
                         public void onSuccess() {
                             dialog.dismiss();
+                            walletManager.saveWalletPasswordSecurely(uid, walletPass);
                             Toast.makeText(MainActivity.this,
                                     getString(R.string.wallet_restore_success), Toast.LENGTH_SHORT).show();
                             showDashboard();
@@ -263,50 +269,66 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void showSetup() {
-        stopBalancePolling();
-        binding.layoutSetup.setVisibility(View.VISIBLE);
-        binding.layoutDashboard.setVisibility(View.GONE);
-    }
-
     private void showDashboard() {
-        binding.layoutSetup.setVisibility(View.GONE);
         binding.layoutDashboard.setVisibility(View.VISIBLE);
         updateUI();
+        loadDashboardTransactions();
         walletManager.startSyncAsync();
         initializeServerWalletOnce();
         startBalancePolling();
     }
 
     private void setupListeners() {
-        // Crear Cuenta: redirige a RegisterActivity para asegurar que la wallet
-        // siempre se guarda cifrada en Firebase. No se crea wallet "en seco" aquí.
-        binding.btnGenerateWallet.setOnClickListener(v -> {
-            Intent intent = new Intent(this, com.example.viper_wallet.auth.RegisterActivity.class);
-            startActivity(intent);
-        });
-
-        // "Ya tengo una cuenta": cierra sesión actual y va a Login para que
-        // el usuario inicie sesión con su cuenta que tiene wallet en Firebase.
-        if (binding.btnRestoreWalletSetup != null) {
-            binding.btnRestoreWalletSetup.setOnClickListener(v -> {
-                FirebaseAuth.getInstance().signOut();
-                goToLogin();
-            });
-        }
 
         // Abrir Perfil
         binding.btnProfile.setOnClickListener(v -> {
             startActivity(new Intent(this, ProfileActivity.class));
         });
 
-        // Historial de transacciones
-        binding.btnHistory.setOnClickListener(v -> {
-            startActivity(new Intent(this, com.example.viper_wallet.auth.TransactionHistoryActivity.class));
+        // Recargar UESCoin
+        binding.btnReload.setOnClickListener(v -> {
+            String address = walletManager.getCurrentReceiveAddress();
+            if (address != null) {
+                mineToAddress(address);
+            } else {
+                Toast.makeText(this, "No hay dirección disponible para recargar", Toast.LENGTH_SHORT).show();
+            }
         });
 
-        // Backup seguro con contraseña de wallet
-        binding.cardBackup.setOnClickListener(v -> showSeedPhrase());
+        // Servicios / Popup Menu
+        binding.btnServices.setOnClickListener(v -> {
+            PopupMenu popupMenu = new PopupMenu(this, v);
+            popupMenu.getMenu().add("Historial completo");
+            popupMenu.getMenu().add("Copiar Dirección");
+            popupMenu.getMenu().add("Minar (RegTest)");
+            popupMenu.setOnMenuItemClickListener(item -> {
+                if ("Historial completo".equals(item.getTitle())) {
+                    startActivity(new Intent(this, com.example.viper_wallet.auth.TransactionHistoryActivity.class));
+                    return true;
+                } else if ("Copiar Dirección".equals(item.getTitle())) {
+                    String address = walletManager.getCurrentReceiveAddress();
+                    if (address != null) {
+                        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                        android.content.ClipData clip = android.content.ClipData.newPlainText("Dirección de Recepción", address);
+                        clipboard.setPrimaryClip(clip);
+                        Toast.makeText(this, "Dirección copiada", Toast.LENGTH_SHORT).show();
+                    } else {
+                        Toast.makeText(this, "No hay dirección disponible", Toast.LENGTH_SHORT).show();
+                    }
+                    return true;
+                } else if ("Minar (RegTest)".equals(item.getTitle())) {
+                    String address = walletManager.getCurrentReceiveAddress();
+                    if (address != null) {
+                        mineToAddress(address);
+                    } else {
+                        Toast.makeText(this, "No hay dirección disponible para minar", Toast.LENGTH_SHORT).show();
+                    }
+                    return true;
+                }
+                return false;
+            });
+            popupMenu.show();
+        });
 
         binding.btnReceive.setOnClickListener(v -> showReceiveAddress());
         binding.btnSend.setOnClickListener(v -> showSendDialog());
@@ -392,52 +414,6 @@ public class MainActivity extends AppCompatActivity {
                 Log.w(TAG, "No se pudo cargar wallet RPC " + walletName, t);
             }
         });
-    }
-
-    private void showSeedPhrase() {
-        if (walletManager.isEncrypted()) {
-            requestWalletPassword(password -> {
-                walletManager.getMnemonicAsync(password, new WalletManager.MnemonicCallback() {
-                    @Override
-                    public void onSuccess(String mnemonic) {
-                        displaySeedDialog(mnemonic);
-                    }
-
-                    @Override
-                    public void onError(Exception e) {
-                        Toast.makeText(MainActivity.this, "Contraseña incorrecta", Toast.LENGTH_SHORT).show();
-                    }
-                });
-            });
-        } else {
-            walletManager.getMnemonicAsync(null, new WalletManager.MnemonicCallback() {
-                @Override
-                public void onSuccess(String mnemonic) {
-                    displaySeedDialog(mnemonic);
-                }
-
-                @Override
-                public void onError(Exception e) {
-                    Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                }
-            });
-        }
-    }
-
-    private void displaySeedDialog(String mnemonic) {
-        if (mnemonic == null) return;
-
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.seed_phrase_title)
-                .setMessage(mnemonic + "\n\n" + getString(R.string.seed_phrase_warning))
-                .setPositiveButton(R.string.btn_done, (dialogInterface, which) -> dialogInterface.dismiss())
-                .create();
-
-        dialog.setOnDismissListener(dialogInterface ->
-                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE));
-        dialog.show();
     }
 
     private void showReceiveAddress() {
@@ -845,9 +821,26 @@ public class MainActivity extends AppCompatActivity {
 
     private void createSignAndBroadcastTransaction(String address, long amountSats) {
         if (walletManager.isEncrypted()) {
-            requestWalletPassword(password -> {
-                performTransaction(address, amountSats, password);
-            });
+            FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+            String savedPassword = (user != null) ? walletManager.getSavedWalletPassword(user.getUid()) : null;
+
+            if (savedPassword != null && com.example.viper_wallet.auth.BiometricHelper.isBiometricOrPinAvailable(this)) {
+                com.example.viper_wallet.auth.BiometricHelper.showPrompt(this, new com.example.viper_wallet.auth.BiometricHelper.BiometricCallback() {
+                    @Override
+                    public void onAuthenticated() {
+                        performTransaction(address, amountSats, savedPassword);
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        Toast.makeText(MainActivity.this, "Autenticación biométrica fallida: " + error, Toast.LENGTH_SHORT).show();
+                    }
+                });
+            } else {
+                requestWalletPassword(password -> {
+                    performTransaction(address, amountSats, password);
+                });
+            }
         } else {
             performTransaction(address, amountSats, null);
         }
@@ -857,6 +850,10 @@ public class MainActivity extends AppCompatActivity {
         walletManager.createTransactionAsync(address, amountSats, password, new WalletManager.TransactionCallback() {
             @Override
             public void onSuccess(Transaction tx) {
+                FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+                if (user != null && password != null) {
+                    walletManager.saveWalletPasswordSecurely(user.getUid(), password);
+                }
                 try {
                     String txHex = toHex(tx.serialize());
                     BitcoinRpcClient.getInstance().sendRawTransaction(txHex, new Callback<BitcoinRpcResponse<String>>() {
@@ -1008,6 +1005,7 @@ public class MainActivity extends AppCompatActivity {
                 if (receiveAddress != null) {
                     binding.tvReceiveAddress.setText(receiveAddress);
                 }
+                loadDashboardTransactions();
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -1085,5 +1083,31 @@ public class MainActivity extends AppCompatActivity {
             Log.e(TAG, "Error parsing error body", e);
         }
         return null;
+    }
+
+    private void loadDashboardTransactions() {
+        if (binding == null || binding.layoutDashboard.getVisibility() != View.VISIBLE) return;
+        binding.progressBarDashboard.setVisibility(View.VISIBLE);
+        AuthManager.getInstance().getTransactions(new AuthManager.TransactionsCallback() {
+            @Override
+            public void onTransactionsLoaded(List<TransactionRecord> transactions) {
+                binding.progressBarDashboard.setVisibility(View.GONE);
+                if (transactions.isEmpty()) {
+                    binding.tvEmptyStateDashboard.setVisibility(View.VISIBLE);
+                    binding.rvTransactionsDashboard.setVisibility(View.GONE);
+                } else {
+                    binding.tvEmptyStateDashboard.setVisibility(View.GONE);
+                    binding.rvTransactionsDashboard.setVisibility(View.VISIBLE);
+                    TransactionAdapter adapter = new TransactionAdapter(transactions);
+                    binding.rvTransactionsDashboard.setAdapter(adapter);
+                }
+            }
+
+            @Override
+            public void onError(String message) {
+                binding.progressBarDashboard.setVisibility(View.GONE);
+                Toast.makeText(MainActivity.this, "Error cargando actividad: " + message, Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 }

@@ -172,14 +172,27 @@ public class LoginActivity extends AppCompatActivity {
                     @Override
                     public void onResult(boolean exists) {
                         if (!exists) {
-                            // No tiene wallet en la nube -> cerrar sesión y no permitir entrada
-                            FirebaseAuth.getInstance().signOut();
-                            mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
-                                setLoading(false);
-                                Toast.makeText(LoginActivity.this,
-                                        "No se encontró una wallet asociada. Por favor regístrate.",
-                                        Toast.LENGTH_LONG).show();
-                            });
+                            // No tiene wallet en la nube -> borrar el usuario de Firebase Auth y no permitir entrada
+                            FirebaseUser firebaseUser = FirebaseAuth.getInstance().getCurrentUser();
+                            if (firebaseUser != null) {
+                                firebaseUser.delete().addOnCompleteListener(deleteTask -> {
+                                    FirebaseAuth.getInstance().signOut();
+                                    mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
+                                        setLoading(false);
+                                        Toast.makeText(LoginActivity.this,
+                                                "No se encontró una wallet asociada. Por favor regístrate.",
+                                                Toast.LENGTH_LONG).show();
+                                    });
+                                });
+                            } else {
+                                FirebaseAuth.getInstance().signOut();
+                                mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
+                                    setLoading(false);
+                                    Toast.makeText(LoginActivity.this,
+                                            "No se encontró una wallet asociada. Por favor regístrate.",
+                                            Toast.LENGTH_LONG).show();
+                                    });
+                            }
                         } else {
                             // Sí existe la wallet -> permitir entrada
                             setLoading(false);
@@ -215,7 +228,7 @@ public class LoginActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────────────────
 
     private void handleEmailLogin() {
-        String email    = etEmail.getText().toString().trim();
+        String email = etEmail.getText().toString().trim();
         String password = etPassword.getText().toString().trim();
 
         if (email.isEmpty() || password.isEmpty()) {
@@ -232,12 +245,23 @@ public class LoginActivity extends AppCompatActivity {
                     @Override
                     public void onResult(boolean exists) {
                         if (!exists) {
-                            // No tiene wallet en la nube -> cerrar sesión y no permitir entrada
-                            FirebaseAuth.getInstance().signOut();
-                            setLoading(false);
-                            Toast.makeText(LoginActivity.this,
-                                    "No se encontró una wallet asociada. Por favor regístrate.",
-                                    Toast.LENGTH_LONG).show();
+                            // No tiene wallet en la nube -> borrar de Auth y no permitir entrada
+                            FirebaseUser firebaseUser = FirebaseAuth.getInstance().getCurrentUser();
+                            if (firebaseUser != null) {
+                                firebaseUser.delete().addOnCompleteListener(deleteTask -> {
+                                    FirebaseAuth.getInstance().signOut();
+                                    setLoading(false);
+                                    Toast.makeText(LoginActivity.this,
+                                            "No se encontró una wallet asociada. Por favor regístrate.",
+                                            Toast.LENGTH_LONG).show();
+                                });
+                            } else {
+                                FirebaseAuth.getInstance().signOut();
+                                setLoading(false);
+                                Toast.makeText(LoginActivity.this,
+                                        "No se encontró una wallet asociada. Por favor regístrate.",
+                                        Toast.LENGTH_LONG).show();
+                            }
                         } else {
                             // Sí existe la wallet -> permitir entrada
                             setLoading(false);

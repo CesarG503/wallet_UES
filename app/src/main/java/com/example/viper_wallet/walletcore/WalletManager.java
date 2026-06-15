@@ -4,6 +4,9 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKeys;
+
 import org.bitcoinj.base.Address;
 import org.bitcoinj.base.Coin;
 import org.bitcoinj.base.Network;
@@ -436,5 +439,59 @@ public class WalletManager {
                 mainHandler.post(() -> callback.onError(e));
             }
         });
+    }
+
+    public void saveWalletPasswordSecurely(String uid, String password) {
+        if (uid == null || password == null) return;
+        try {
+            String masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC);
+            SharedPreferences sharedPreferences = EncryptedSharedPreferences.create(
+                    "secure_wallet_prefs_" + uid,
+                    masterKeyAlias,
+                    context,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            );
+            sharedPreferences.edit().putString("wallet_password", password).apply();
+            Log.d(TAG, "Contraseña guardada de forma segura para el usuario: " + uid);
+        } catch (Exception e) {
+            Log.e(TAG, "Error al guardar la contraseña de forma segura", e);
+        }
+    }
+
+    public String getSavedWalletPassword(String uid) {
+        if (uid == null) return null;
+        try {
+            String masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC);
+            SharedPreferences sharedPreferences = EncryptedSharedPreferences.create(
+                    "secure_wallet_prefs_" + uid,
+                    masterKeyAlias,
+                    context,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            );
+            return sharedPreferences.getString("wallet_password", null);
+        } catch (Exception e) {
+            Log.e(TAG, "Error al recuperar la contraseña segura", e);
+            return null;
+        }
+    }
+
+    public void clearSavedWalletPassword(String uid) {
+        if (uid == null) return;
+        try {
+            String masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC);
+            SharedPreferences sharedPreferences = EncryptedSharedPreferences.create(
+                    "secure_wallet_prefs_" + uid,
+                    masterKeyAlias,
+                    context,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            );
+            sharedPreferences.edit().remove("wallet_password").apply();
+            Log.d(TAG, "Contraseña segura eliminada para el usuario: " + uid);
+        } catch (Exception e) {
+            Log.e(TAG, "Error al eliminar la contraseña segura", e);
+        }
     }
 }

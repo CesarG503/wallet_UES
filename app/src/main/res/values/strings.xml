@@ -52,10 +52,10 @@
 
     <!-- Paso 2: Nickname -->
     <string name="reg_step2_title">¿Cómo te llamamos?</string>
-    <string name="reg_step2_subtitle">Tu apodo es solo para ti. No aparecerá en ninguna transacción.</string>
-    <string name="reg_step2_hint_nickname">Tu apodo (ej. Lobo, Satoshi…)</string>
+    <string name="reg_step2_subtitle">Tu nombre es solo para ti. No aparecerá en ninguna transacción.</string>
+    <string name="reg_step2_hint_nickname">Tu nombre (ej. Lobo, Satoshi…)</string>
     <string name="reg_step2_btn_next">Continuar</string>
-    <string name="reg_step2_nickname_too_short">El apodo debe tener al menos 2 caracteres</string>
+    <string name="reg_step2_nickname_too_short">El nombre debe tener al menos 2 caracteres</string>
 
     <!-- Paso 3: Semilla -->
     <string name="reg_step3_title">Tu frase semilla</string>
@@ -76,10 +76,13 @@
 
     <!-- Profile Strings -->
     <string name="title_profile">Mi Perfil</string>
-    <string name="label_nickname">Apodo:</string>
+    <string name="label_nickname">Nombre:</string>
     <string name="label_uid">ID de Usuario:</string>
     <string name="label_email">Email:</string>
     <string name="btn_logout">Cerrar Sesión</string>
+    <string name="btn_view_seed">Ver frase semilla</string>
+    <string name="label_phrase">Frase:</string>
+    <string name="link_view_phrase"><u>Ver Frase</u></string>
     <string name="security_auth_required">Se requiere autenticación para ver la semilla</string>
 </resources>
 
