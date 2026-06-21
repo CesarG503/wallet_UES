@@ -70,6 +70,8 @@ import org.bitcoinj.core.Transaction;
 import org.bitcoinj.wallet.Wallet;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -88,7 +90,10 @@ import retrofit2.Response;
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     private static final long BALANCE_REFRESH_INTERVAL_MS = 20_000L;
+    private static final long INITIAL_BLOCK_SUBSIDY_SATS = 5_000_000_000L;
     private static final long FALLBACK_REGTEST_BLOCK_REWARD_SATS = 5_000_000_000L;
+    private static final int REGTEST_SUBSIDY_HALVING_INTERVAL = 150;
+    private static final int COINBASE_MATURITY_CONFIRMATIONS = 100;
     private static final int QR_CODE_SIZE_DP = 220;
 
     private ActivityMainBinding binding;
@@ -101,6 +106,7 @@ public class MainActivity extends AppCompatActivity {
     private final ExecutorService miningExecutor = Executors.newSingleThreadExecutor();
     private boolean isBalancePolling;
     private boolean isBalanceRequestInFlight;
+    private boolean isBalanceRefreshQueued;
     private boolean isServerWalletInitialized;
     private boolean isMining;
     private boolean isMiningRequestInFlight;
@@ -117,6 +123,10 @@ public class MainActivity extends AppCompatActivity {
     private TextView miningStatusText;
     private TextView miningStatsText;
     private AnimatorSet miningPulseAnimator;
+    private long lastTotalBalanceSats;
+    private long lastSpendableBalanceSats;
+    private long lastImmatureMiningSats;
+    private int lastMiningMaturityBlocks;
 
     private final Runnable balanceRefreshRunnable = new Runnable() {
         @Override
@@ -880,7 +890,7 @@ public class MainActivity extends AppCompatActivity {
                         MiningSubmitResult result = body != null ? body.getData() : null;
 
                         if (response.isSuccessful() && result != null && result.isAccepted()) {
-                            finishMinedBlock(result);
+                            finishMinedBlock(work, result);
                             return;
                         }
 
@@ -899,10 +909,8 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
-    private void finishMinedBlock(MiningSubmitResult result) {
-        long rewardSats = result.getRewardSats() > 0
-                ? result.getRewardSats()
-                : FALLBACK_REGTEST_BLOCK_REWARD_SATS;
+    private void finishMinedBlock(MiningWork work, MiningSubmitResult result) {
+        long rewardSats = resolveMiningRewardSats(work, result);
         String blockHash = result.getBlockHash() != null
                 ? result.getBlockHash()
                 : "job_" + result.getJobId();
@@ -910,8 +918,11 @@ public class MainActivity extends AppCompatActivity {
         minedBlocksThisSession++;
         minedSatsThisSession += rewardSats;
 
+        String miningTxId = result.getCoinbaseTxId() != null && !result.getCoinbaseTxId().isEmpty()
+                ? result.getCoinbaseTxId()
+                : "mining_" + blockHash;
         AuthManager.getInstance().saveTransaction(new TransactionRecord(
-                "mining_" + blockHash,
+                miningTxId,
                 "MINING",
                 rewardSats,
                 activeMiningAddress
@@ -926,6 +937,29 @@ public class MainActivity extends AppCompatActivity {
         if (isMining) {
             requestMiningWork();
         }
+    }
+
+    private long resolveMiningRewardSats(MiningWork work, MiningSubmitResult result) {
+        boolean apiReturnedCoinbase = result.getCoinbaseTxId() != null && !result.getCoinbaseTxId().isEmpty();
+        if (apiReturnedCoinbase && result.getRewardSats() > 0) {
+            return result.getRewardSats();
+        }
+
+        if (work != null && work.getHeight() > 0) {
+            return estimatedRegtestRewardSatsForHeight(work.getHeight());
+        }
+
+        return result.getRewardSats() > 0
+                ? result.getRewardSats()
+                : FALLBACK_REGTEST_BLOCK_REWARD_SATS;
+    }
+
+    private long estimatedRegtestRewardSatsForHeight(int height) {
+        int halvings = Math.max(0, height) / REGTEST_SUBSIDY_HALVING_INTERVAL;
+        if (halvings >= 63) {
+            return 0L;
+        }
+        return INITIAL_BLOCK_SUBSIDY_SATS >> halvings;
     }
 
     private void handleMiningWorkError(String message) {
@@ -1009,7 +1043,7 @@ public class MainActivity extends AppCompatActivity {
         layout.setPadding(dpToPx(24), dpToPx(12), dpToPx(24), 0);
 
         TextView availableBalanceView = new TextView(this);
-        availableBalanceView.setText("Disponible: " + binding.tvBalance.getText());
+        availableBalanceView.setText(sendDialogBalanceText());
         availableBalanceView.setTextColor(Color.parseColor("#64748B"));
         availableBalanceView.setTextSize(14);
         layout.addView(availableBalanceView);
@@ -1056,6 +1090,11 @@ public class MainActivity extends AppCompatActivity {
         etAmount.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         layout.addView(etAmount);
 
+        MaterialButton btnUseMax = new MaterialButton(this);
+        btnUseMax.setText("Usar máximo");
+        btnUseMax.setIconResource(android.R.drawable.ic_menu_upload);
+        layout.addView(btnUseMax);
+
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle("Enviar UESCoin")
                 .setView(layout)
@@ -1070,6 +1109,7 @@ public class MainActivity extends AppCompatActivity {
             }
             showSaveFriendDialog(address);
         });
+        btnUseMax.setOnClickListener(v -> etAmount.setText(satsToPlainCoin(lastSpendableBalanceSats)));
         dialog.setOnDismissListener(dialogInterface -> {
             if (pendingScanAddressEditText == etAddress) {
                 pendingScanAddressEditText = null;
@@ -1092,7 +1132,7 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             try {
-                long satoshis = (long) (Double.parseDouble(amountStr) * 100_000_000);
+                long satoshis = parseCoinAmountToSats(amountStr);
                 if (satoshis <= 0) {
                     etAmount.setError("El monto debe ser mayor que 0");
                     return;
@@ -1456,18 +1496,20 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 BitcoinScanTxOutSetResult result = body.getResult();
-                List<WalletManager.WalletUtxo> walletUtxos = toWalletUtxos(result, walletAddresses);
-                if (walletUtxos.isEmpty()) {
+                List<WalletManager.WalletUtxo> walletUtxos = toSpendableWalletUtxos(result, walletAddresses, chainHeight);
+                walletManager.setRpcUtxos(walletUtxos, chainHeight);
+                long estimatedSpendableSats = walletManager.getEstimatedSpendableBalanceSats();
+                if (walletUtxos.isEmpty() && estimatedSpendableSats <= 0) {
                     Toast.makeText(
                             MainActivity.this,
-                            "El nodo ve 0 UTXOs gastables para esta wallet. Revisa que recibiste/minaste a esta dirección.",
+                            "El nodo ve 0 UTXOs gastables para esta wallet. Si acabas de minar, la recompensa debe madurar primero.",
                             Toast.LENGTH_LONG
                     ).show();
                     return;
                 }
 
-                walletManager.setRpcUtxos(walletUtxos, chainHeight);
-                createSignAndBroadcastTransaction(address, amountSats);
+                boolean emptyWallet = shouldEmptyWallet(amountSats, estimatedSpendableSats);
+                createSignAndBroadcastTransaction(address, amountSats, emptyWallet);
             }
 
             @Override
@@ -1477,7 +1519,11 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void createSignAndBroadcastTransaction(String address, long amountSats) {
+    private boolean shouldEmptyWallet(long requestedSats, long estimatedSpendableSats) {
+        return estimatedSpendableSats > 0 && requestedSats >= estimatedSpendableSats;
+    }
+
+    private void createSignAndBroadcastTransaction(String address, long amountSats, boolean emptyWallet) {
         if (walletManager.isEncrypted()) {
             FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
             String savedPassword = (user != null) ? walletManager.getSavedWalletPassword(user.getUid()) : null;
@@ -1486,7 +1532,7 @@ public class MainActivity extends AppCompatActivity {
                 com.example.viper_wallet.auth.BiometricHelper.showPrompt(this, new com.example.viper_wallet.auth.BiometricHelper.BiometricCallback() {
                     @Override
                     public void onAuthenticated() {
-                        performTransaction(address, amountSats, savedPassword);
+                        performTransaction(address, amountSats, emptyWallet, savedPassword);
                     }
 
                     @Override
@@ -1496,16 +1542,16 @@ public class MainActivity extends AppCompatActivity {
                 });
             } else {
                 requestWalletPassword(password -> {
-                    performTransaction(address, amountSats, password);
+                    performTransaction(address, amountSats, emptyWallet, password);
                 });
             }
         } else {
-            performTransaction(address, amountSats, null);
+            performTransaction(address, amountSats, emptyWallet, null);
         }
     }
 
-    private void performTransaction(String address, long amountSats, String password) {
-        walletManager.createTransactionAsync(address, amountSats, password, new WalletManager.TransactionCallback() {
+    private void performTransaction(String address, long amountSats, boolean emptyWallet, String password) {
+        walletManager.createTransactionAsync(address, amountSats, emptyWallet, password, new WalletManager.TransactionCallback() {
             @Override
             public void onSuccess(Transaction tx) {
                 FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
@@ -1520,10 +1566,23 @@ public class MainActivity extends AppCompatActivity {
                             BitcoinRpcResponse<String> body = response.body();
                             if (response.isSuccessful() && body != null && body.getError() == null) {
                                 String txId = body.getResult();
-                                Toast.makeText(MainActivity.this, "Transacción enviada: " + txId, Toast.LENGTH_LONG).show();
+                                try {
+                                    walletManager.commitBroadcastTransaction(tx);
+                                } catch (Exception e) {
+                                    Log.w(TAG, "No se pudo guardar tx pendiente localmente", e);
+                                }
+
+                                long actualSentSats = walletManager.getOutputAmountToAddress(tx, address);
+                                if (actualSentSats <= 0) {
+                                    actualSentSats = amountSats;
+                                }
+                                String message = emptyWallet
+                                        ? "Transacción enviada. Comisión descontada del máximo."
+                                        : "Transacción enviada: " + txId;
+                                Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
 
                                 AuthManager.getInstance().saveTransaction(new TransactionRecord(
-                                    txId, "SEND", amountSats, address
+                                    txId, "SEND", actualSentSats, address
                                 ));
 
                                 updateUI();
@@ -1582,14 +1641,19 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    private List<WalletManager.WalletUtxo> toWalletUtxos(
+    private List<WalletManager.WalletUtxo> toSpendableWalletUtxos(
             BitcoinScanTxOutSetResult result,
-            List<String> walletAddresses
+            List<String> walletAddresses,
+            int chainHeight
     ) {
         List<WalletManager.WalletUtxo> walletUtxos = new ArrayList<>();
         if (result.getUnspents() == null) return walletUtxos;
 
         for (BitcoinScanTxOutSetResult.Unspent unspent : result.getUnspents()) {
+            if (isImmatureCoinbase(unspent, chainHeight)) {
+                continue;
+            }
+
             String scriptPubKey = unspent.getScriptPubKey();
             if (scriptPubKey == null || scriptPubKey.isEmpty()) {
                 Log.w(TAG, "UTXO sin scriptPubKey, se omite: " + unspent.getTxid() + ":" + unspent.getVout());
@@ -1597,6 +1661,11 @@ public class MainActivity extends AppCompatActivity {
             }
 
             String ownerAddress = findOwnerAddress(unspent, walletAddresses);
+            if (ownerAddress == null) {
+                Log.w(TAG, "UTXO sin dirección dueña reconocida, se omite: " + unspent.getTxid() + ":" + unspent.getVout());
+                continue;
+            }
+
             walletUtxos.add(new WalletManager.WalletUtxo(
                     unspent.getTxid(),
                     unspent.getVout(),
@@ -1683,7 +1752,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshBalanceFromRpc() {
-        if (isBalanceRequestInFlight || walletManager.getWallet() == null) return;
+        if (walletManager.getWallet() == null) return;
+        if (isBalanceRequestInFlight) {
+            isBalanceRefreshQueued = true;
+            return;
+        }
 
         List<String> addresses = walletManager.getIssuedReceiveAddresses();
         if (addresses.isEmpty()) return;
@@ -1692,8 +1765,6 @@ public class MainActivity extends AppCompatActivity {
         BitcoinRpcClient.getInstance().scanTxOutSetForAddresses(addresses, new Callback<BitcoinRpcResponse<BitcoinScanTxOutSetResult>>() {
             @Override
             public void onResponse(Call<BitcoinRpcResponse<BitcoinScanTxOutSetResult>> call, Response<BitcoinRpcResponse<BitcoinScanTxOutSetResult>> response) {
-                isBalanceRequestInFlight = false;
-
                 BitcoinRpcResponse<BitcoinScanTxOutSetResult> body = response.body();
                 if (!response.isSuccessful() || body == null || body.getError() != null || body.getResult() == null) {
                     String message = "respuesta RPC inválida";
@@ -1706,27 +1777,157 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                     Log.w(TAG, "No se pudo actualizar balance: " + message);
+                    finishBalanceRefresh();
                     return;
                 }
 
                 BitcoinScanTxOutSetResult result = body.getResult();
                 if (result.isSuccess()) {
-                    displayBalance(result.getTotalSats());
+                    int chainHeight = result.getHeight();
+                    if (chainHeight > 0) {
+                        walletManager.setRpcUtxos(toSpendableWalletUtxos(result, addresses, chainHeight), chainHeight);
+                    }
+                    BalanceSummary summary = summarizeBalance(result);
+                    displayBalance(summary);
                     saveIncomingTransactionsFromUtxos(result, addresses);
                 }
+                finishBalanceRefresh();
             }
 
             @Override
             public void onFailure(Call<BitcoinRpcResponse<BitcoinScanTxOutSetResult>> call, Throwable t) {
-                isBalanceRequestInFlight = false;
                 Log.w(TAG, "Error RPC actualizando balance", t);
+                finishBalanceRefresh();
             }
         });
     }
 
     private void displayBalance(long sats) {
-        binding.tvBalance.setText(formatCoinAmount(sats));
-        binding.tvBalanceSats.setText(sats + " sats");
+        displayBalance(new BalanceSummary(sats, sats, 0L, 0));
+    }
+
+    private void displayBalance(BalanceSummary summary) {
+        long pendingOutgoingSats = walletManager.getPendingOutgoingSats();
+        long estimatedSpendableSats = walletManager.getEstimatedSpendableBalanceSats();
+        long displayedSpendableSats = pendingOutgoingSats > 0
+                ? Math.max(0L, estimatedSpendableSats)
+                : summary.spendableSats;
+
+        lastTotalBalanceSats = summary.totalSats;
+        lastSpendableBalanceSats = displayedSpendableSats;
+        lastImmatureMiningSats = summary.immatureMiningSats;
+        lastMiningMaturityBlocks = summary.nextMaturityBlocks;
+
+        binding.tvBalance.setText(formatCoinAmount(summary.totalSats));
+        if (summary.immatureMiningSats > 0 || pendingOutgoingSats > 0) {
+            String maturityText = summary.nextMaturityBlocks > 0
+                    ? " · próxima madurez en " + summary.nextMaturityBlocks + " bloques"
+                    : "";
+            StringBuilder balanceDetails = new StringBuilder("Disponible: ")
+                    .append(displayedSpendableSats)
+                    .append(" sats");
+            if (pendingOutgoingSats > 0) {
+                balanceDetails.append(" · En transferencia: ")
+                        .append(pendingOutgoingSats)
+                        .append(" sats");
+            }
+            if (summary.immatureMiningSats > 0) {
+                balanceDetails.append(" · Minería pendiente: ")
+                        .append(summary.immatureMiningSats)
+                        .append(" sats")
+                        .append(maturityText);
+            }
+            binding.tvBalanceSats.setText(balanceDetails.toString());
+        } else {
+            binding.tvBalanceSats.setText("Disponible: " + displayedSpendableSats + " sats");
+        }
+    }
+
+    private void finishBalanceRefresh() {
+        isBalanceRequestInFlight = false;
+        if (isBalanceRefreshQueued) {
+            isBalanceRefreshQueued = false;
+            balanceHandler.post(this::refreshBalanceFromRpc);
+        }
+    }
+
+    private BalanceSummary summarizeBalance(BitcoinScanTxOutSetResult result) {
+        long totalSats = 0L;
+        long immatureMiningSats = 0L;
+        int nextMaturityBlocks = 0;
+
+        List<BitcoinScanTxOutSetResult.Unspent> unspents = result.getUnspents();
+        if (unspents != null) {
+            for (BitcoinScanTxOutSetResult.Unspent unspent : unspents) {
+                if (unspent == null) continue;
+                long amountSats = unspent.getAmountSats();
+                totalSats += amountSats;
+
+                if (isImmatureCoinbase(unspent, result.getHeight())) {
+                    immatureMiningSats += amountSats;
+                    int remaining = remainingMaturityBlocks(unspent, result.getHeight());
+                    if (remaining > 0 && (nextMaturityBlocks == 0 || remaining < nextMaturityBlocks)) {
+                        nextMaturityBlocks = remaining;
+                    }
+                }
+            }
+        } else {
+            totalSats = result.getTotalSats();
+        }
+
+        long spendableSats = Math.max(0L, totalSats - immatureMiningSats);
+        return new BalanceSummary(totalSats, spendableSats, immatureMiningSats, nextMaturityBlocks);
+    }
+
+    private boolean isImmatureCoinbase(BitcoinScanTxOutSetResult.Unspent unspent, int chainHeight) {
+        return unspent != null
+                && unspent.isCoinbase()
+                && chainHeight > 0
+                && confirmationsForUnspent(unspent, chainHeight) < COINBASE_MATURITY_CONFIRMATIONS;
+    }
+
+    private int remainingMaturityBlocks(BitcoinScanTxOutSetResult.Unspent unspent, int chainHeight) {
+        int confirmations = confirmationsForUnspent(unspent, chainHeight);
+        return Math.max(0, COINBASE_MATURITY_CONFIRMATIONS - confirmations);
+    }
+
+    private int confirmationsForUnspent(BitcoinScanTxOutSetResult.Unspent unspent, int chainHeight) {
+        if (unspent.getHeight() <= 0 || chainHeight <= 0) return 0;
+        return Math.max(0, chainHeight - unspent.getHeight() + 1);
+    }
+
+    private String sendDialogBalanceText() {
+        String text = "Disponible: " + formatCoinAmount(lastSpendableBalanceSats);
+        long pendingOutgoingSats = walletManager.getPendingOutgoingSats();
+        if (pendingOutgoingSats > 0) {
+            text += "\nEn transferencia: " + formatCoinAmount(pendingOutgoingSats);
+        }
+        if (lastImmatureMiningSats > 0) {
+            text += "\nMinería pendiente: " + formatCoinAmount(lastImmatureMiningSats);
+            if (lastMiningMaturityBlocks > 0) {
+                text += " · madura en " + lastMiningMaturityBlocks + " bloques";
+            }
+        }
+        return text;
+    }
+
+    private static class BalanceSummary {
+        private final long totalSats;
+        private final long spendableSats;
+        private final long immatureMiningSats;
+        private final int nextMaturityBlocks;
+
+        private BalanceSummary(
+                long totalSats,
+                long spendableSats,
+                long immatureMiningSats,
+                int nextMaturityBlocks
+        ) {
+            this.totalSats = totalSats;
+            this.spendableSats = spendableSats;
+            this.immatureMiningSats = immatureMiningSats;
+            this.nextMaturityBlocks = nextMaturityBlocks;
+        }
     }
 
     private void saveIncomingTransactionsFromUtxos(
@@ -1773,6 +1974,20 @@ public class MainActivity extends AppCompatActivity {
 
     private String formatCoinAmount(long sats) {
         return String.format(Locale.US, "%.8f %s", sats / 100_000_000.0, Constants.COIN_TICKER);
+    }
+
+    private String satsToPlainCoin(long sats) {
+        return BigDecimal.valueOf(sats)
+                .movePointLeft(8)
+                .setScale(8, RoundingMode.DOWN)
+                .toPlainString();
+    }
+
+    private long parseCoinAmountToSats(String amount) {
+        return new BigDecimal(amount)
+                .movePointRight(8)
+                .setScale(0, RoundingMode.UNNECESSARY)
+                .longValueExact();
     }
 
     private BitcoinRpcResponse<?> parseErrorResponse(Response<?> response) {

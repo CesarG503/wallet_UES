@@ -13,6 +13,7 @@ public class MiningSubmitResult {
     private String target_prefix;
     private long reward_sats;
     private String block_hash;
+    private String coinbase_txid;
     private List<String> block_hashes;
     private String winner_address;
 
@@ -54,6 +55,10 @@ public class MiningSubmitResult {
 
     public String getBlockHash() {
         return block_hash;
+    }
+
+    public String getCoinbaseTxId() {
+        return coinbase_txid;
     }
 
     public List<String> getBlockHashes() {

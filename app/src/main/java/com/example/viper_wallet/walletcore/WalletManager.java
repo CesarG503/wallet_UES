@@ -19,6 +19,7 @@ import org.bitcoinj.core.Transaction;
 import org.bitcoinj.core.UTXO;
 import org.bitcoinj.core.UTXOProvider;
 import org.bitcoinj.core.UTXOProviderException;
+import org.bitcoinj.core.VerificationException;
 import org.bitcoinj.crypto.AesKey;
 import org.bitcoinj.crypto.ECKey;
 import org.bitcoinj.crypto.KeyCrypter;
@@ -185,6 +186,17 @@ public class WalletManager {
     public Transaction createTransaction(String recipientAddress, long amountSats, String password) throws Exception {
         Address address = Address.fromString(Constants.NETWORK_PARAMETERS, recipientAddress);
         SendRequest request = SendRequest.to(address, Coin.valueOf(amountSats));
+        return createTransaction(request, password);
+    }
+
+    public Transaction createEmptyWalletTransaction(String recipientAddress, String password) throws Exception {
+        Address address = Address.fromString(Constants.NETWORK_PARAMETERS, recipientAddress);
+        SendRequest request = SendRequest.emptyWallet(address);
+        return createTransaction(request, password);
+    }
+
+    private Transaction createTransaction(SendRequest request, String password) throws Exception {
+        request.allowUnconfirmed();
         
         if (wallet.isEncrypted()) {
             if (password == null || password.isEmpty()) {
@@ -198,6 +210,54 @@ public class WalletManager {
         wallet.completeTx(request);
         saveWallet();
         return request.tx;
+    }
+
+    public void commitBroadcastTransaction(Transaction tx) throws IOException, VerificationException {
+        if (wallet == null || tx == null) return;
+        wallet.commitTx(tx);
+        saveWallet();
+    }
+
+    public long getEstimatedSpendableBalanceSats() {
+        if (wallet == null) return 0L;
+        return wallet.getBalance(Wallet.BalanceType.ESTIMATED_SPENDABLE).value;
+    }
+
+    public long getPendingOutgoingSats() {
+        if (wallet == null) return 0L;
+
+        long pendingOutgoing = 0L;
+        for (Transaction tx : wallet.getPendingTransactions()) {
+            try {
+                long sent = tx.getValueSentFromMe(wallet).value;
+                long received = tx.getValueSentToMe(wallet).value;
+                long netOutgoing = sent - received;
+                if (netOutgoing > 0) {
+                    pendingOutgoing += netOutgoing;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "No se pudo calcular tx pendiente: " + tx.getTxId(), e);
+            }
+        }
+        return pendingOutgoing;
+    }
+
+    public long getOutputAmountToAddress(Transaction tx, String recipientAddress) {
+        if (tx == null || recipientAddress == null || recipientAddress.isEmpty()) return 0L;
+
+        Address destination = Address.fromString(Constants.NETWORK_PARAMETERS, recipientAddress);
+        long amount = 0L;
+        for (org.bitcoinj.core.TransactionOutput output : tx.getOutputs()) {
+            try {
+                Address outputAddress = output.getScriptPubKey().getToAddress(Constants.NETWORK_PARAMETERS);
+                if (destination.equals(outputAddress)) {
+                    amount += output.getValue().value;
+                }
+            } catch (Exception ignored) {
+                // Non-address outputs are not destination payments for this flow.
+            }
+        }
+        return amount;
     }
 
     public void setRpcUtxos(List<WalletUtxo> unspents, int chainHeadHeight) {
@@ -431,9 +491,21 @@ public class WalletManager {
     }
 
     public void createTransactionAsync(String recipientAddress, long amountSats, String password, TransactionCallback callback) {
+        createTransactionAsync(recipientAddress, amountSats, false, password, callback);
+    }
+
+    public void createTransactionAsync(
+            String recipientAddress,
+            long amountSats,
+            boolean emptyWallet,
+            String password,
+            TransactionCallback callback
+    ) {
         walletExecutor.execute(() -> {
             try {
-                Transaction tx = createTransaction(recipientAddress, amountSats, password);
+                Transaction tx = emptyWallet
+                        ? createEmptyWalletTransaction(recipientAddress, password)
+                        : createTransaction(recipientAddress, amountSats, password);
                 mainHandler.post(() -> callback.onSuccess(tx));
             } catch (Exception e) {
                 mainHandler.post(() -> callback.onError(e));
