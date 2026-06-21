@@ -24,6 +24,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.ScrollView;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -343,10 +344,14 @@ public class MainActivity extends AppCompatActivity {
         binding.btnServices.setOnClickListener(v -> {
             PopupMenu popupMenu = new PopupMenu(this, v);
             popupMenu.getMenu().add("Historial completo");
+            popupMenu.getMenu().add("Amigos");
             popupMenu.getMenu().add("Copiar Dirección");
             popupMenu.setOnMenuItemClickListener(item -> {
                 if ("Historial completo".equals(item.getTitle())) {
                     startActivity(new Intent(this, com.example.viper_wallet.auth.TransactionHistoryActivity.class));
+                    return true;
+                } else if ("Amigos".equals(item.getTitle())) {
+                    showFriendsDialog();
                     return true;
                 } else if ("Copiar Dirección".equals(item.getTitle())) {
                     String address = walletManager.getCurrentReceiveAddress();
@@ -995,37 +1000,37 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showSendDialog() {
+        showSendDialog(null);
+    }
+
+    private void showSendDialog(String prefilledAddress) {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dpToPx(24), dpToPx(12), dpToPx(24), 0);
 
-        LinearLayout addressRow = new LinearLayout(this);
-        addressRow.setOrientation(LinearLayout.HORIZONTAL);
-        addressRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView availableBalanceView = new TextView(this);
+        availableBalanceView.setText("Disponible: " + binding.tvBalance.getText());
+        availableBalanceView.setTextColor(Color.parseColor("#64748B"));
+        availableBalanceView.setTextSize(14);
+        layout.addView(availableBalanceView);
 
         final EditText etAddress = new EditText(this);
-        etAddress.setHint("Recipient Address");
+        etAddress.setHint("Dirección destino");
         etAddress.setSingleLine(true);
+        if (prefilledAddress != null && !prefilledAddress.isEmpty()) {
+            etAddress.setText(prefilledAddress);
+            etAddress.setSelection(prefilledAddress.length());
+        }
         LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(
-                0,
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1f
         );
-        addressRow.addView(etAddress, addressParams);
-
-        MaterialButton btnScanQr = new MaterialButton(this);
-        btnScanQr.setText("Escanear QR");
-        btnScanQr.setIconResource(android.R.drawable.ic_menu_camera);
-        LinearLayout.LayoutParams scanParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        scanParams.setMargins(dpToPx(12), 0, 0, 0);
-        addressRow.addView(btnScanQr, scanParams);
-        layout.addView(addressRow);
+        addressParams.setMargins(0, dpToPx(8), 0, 0);
+        layout.addView(etAddress, addressParams);
 
         FrameLayout scannerFrame = new FrameLayout(this);
-        scannerFrame.setVisibility(View.GONE);
+        scannerFrame.setVisibility(prefilledAddress == null || prefilledAddress.isEmpty() ? View.VISIBLE : View.GONE);
         LinearLayout.LayoutParams scannerParams = new LinearLayout.LayoutParams(
                 dpToPx(260),
                 dpToPx(260)
@@ -1041,30 +1046,30 @@ public class MainActivity extends AppCompatActivity {
         ));
         layout.addView(scannerFrame, scannerParams);
 
-        btnScanQr.setOnClickListener(v -> startEmbeddedQrScanner(etAddress, scannerView, scannerFrame));
+        MaterialButton btnSaveFriend = new MaterialButton(this);
+        btnSaveFriend.setText("Guardar como amigo");
+        btnSaveFriend.setIconResource(android.R.drawable.ic_menu_save);
+        layout.addView(btnSaveFriend);
 
         final EditText etAmount = new EditText(this);
-        etAmount.setHint("Amount in BTC");
+        etAmount.setHint("Monto en UESCoin");
         etAmount.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         layout.addView(etAmount);
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle("Send UESCoin (RegTest)")
+                .setTitle("Enviar UESCoin")
                 .setView(layout)
-                .setPositiveButton("Send", (dialogInterface, which) -> {
-                    String address = etAddress.getText().toString();
-                    String amountStr = etAmount.getText().toString();
-                    if (!address.isEmpty() && !amountStr.isEmpty()) {
-                        try {
-                            long satoshis = (long) (Double.parseDouble(amountStr) * 100_000_000);
-                            sendTransaction(address, satoshis);
-                        } catch (Exception e) {
-                            Toast.makeText(this, "Invalid amount", Toast.LENGTH_SHORT).show();
-                        }
-                    }
-                })
-                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Enviar", null)
+                .setNegativeButton("Cancelar", null)
                 .create();
+        btnSaveFriend.setOnClickListener(v -> {
+            String address = etAddress.getText().toString().trim();
+            if (address.isEmpty()) {
+                etAddress.setError("Escanea o escribe una dirección");
+                return;
+            }
+            showSaveFriendDialog(address);
+        });
         dialog.setOnDismissListener(dialogInterface -> {
             if (pendingScanAddressEditText == etAddress) {
                 pendingScanAddressEditText = null;
@@ -1075,6 +1080,254 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String address = etAddress.getText().toString().trim();
+            String amountStr = etAmount.getText().toString().trim();
+            if (address.isEmpty()) {
+                etAddress.setError("Escanea o escribe una dirección");
+                return;
+            }
+            if (amountStr.isEmpty()) {
+                etAmount.setError("Escribe el monto");
+                return;
+            }
+            try {
+                long satoshis = (long) (Double.parseDouble(amountStr) * 100_000_000);
+                if (satoshis <= 0) {
+                    etAmount.setError("El monto debe ser mayor que 0");
+                    return;
+                }
+                dialog.dismiss();
+                sendTransaction(address, satoshis);
+            } catch (Exception e) {
+                etAmount.setError("Monto inválido");
+            }
+        });
+        if (prefilledAddress == null || prefilledAddress.isEmpty()) {
+            scannerFrame.post(() -> startEmbeddedQrScanner(etAddress, scannerView, scannerFrame));
+        }
+    }
+
+    private void showFriendsDialog() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dpToPx(20), dpToPx(12), dpToPx(20), 0);
+
+        MaterialButton btnAddFriend = new MaterialButton(this);
+        btnAddFriend.setText("Agregar amigo con QR");
+        btnAddFriend.setIconResource(android.R.drawable.ic_input_add);
+        content.addView(btnAddFriend);
+
+        MaterialButton btnSendByQr = new MaterialButton(this);
+        btnSendByQr.setText("Enviar escaneando QR");
+        btnSendByQr.setIconResource(android.R.drawable.ic_menu_camera);
+        content.addView(btnSendByQr);
+
+        TextView loadingView = new TextView(this);
+        loadingView.setText("Cargando amigos...");
+        loadingView.setGravity(Gravity.CENTER_HORIZONTAL);
+        loadingView.setPadding(0, dpToPx(16), 0, dpToPx(16));
+        content.addView(loadingView);
+
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.addView(content);
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Amigos")
+                .setView(scrollView)
+                .setNegativeButton("Cerrar", null)
+                .create();
+
+        btnAddFriend.setOnClickListener(v -> {
+            dialog.dismiss();
+            showAddFriendDialog(null);
+        });
+        btnSendByQr.setOnClickListener(v -> {
+            dialog.dismiss();
+            showSendDialog();
+        });
+
+        AuthManager.getInstance().getContacts(new AuthManager.ContactsCallback() {
+            @Override
+            public void onContactsLoaded(List<AuthManager.Contact> contacts) {
+                content.removeView(loadingView);
+                if (contacts.isEmpty()) {
+                    TextView emptyView = new TextView(MainActivity.this);
+                    emptyView.setText("Aún no tienes amigos guardados.");
+                    emptyView.setGravity(Gravity.CENTER_HORIZONTAL);
+                    emptyView.setPadding(0, dpToPx(16), 0, dpToPx(16));
+                    content.addView(emptyView);
+                    return;
+                }
+
+                for (AuthManager.Contact contact : contacts) {
+                    content.addView(createFriendRow(contact, dialog));
+                }
+            }
+
+            @Override
+            public void onError(String message) {
+                loadingView.setText("Error cargando amigos: " + message);
+            }
+        });
+
+        dialog.show();
+    }
+
+    private View createFriendRow(AuthManager.Contact contact, AlertDialog parentDialog) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dpToPx(14), 0, dpToPx(14));
+
+        TextView nameView = new TextView(this);
+        nameView.setText(contact.getName() != null && !contact.getName().isEmpty() ? contact.getName() : "Sin nombre");
+        nameView.setTextSize(16);
+        nameView.setTypeface(Typeface.DEFAULT_BOLD);
+        row.addView(nameView);
+
+        TextView addressView = new TextView(this);
+        addressView.setText(contact.getPublicKey());
+        addressView.setTextSize(12);
+        addressView.setTextColor(Color.parseColor("#64748B"));
+        addressView.setTextIsSelectable(true);
+        row.addView(addressView);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.END);
+        actions.setPadding(0, dpToPx(8), 0, 0);
+
+        MaterialButton btnTransfer = new MaterialButton(this);
+        btnTransfer.setText("Transferir");
+        btnTransfer.setOnClickListener(v -> {
+            parentDialog.dismiss();
+            showSendDialog(contact.getPublicKey());
+        });
+        actions.addView(btnTransfer);
+        row.addView(actions);
+
+        return row;
+    }
+
+    private void showAddFriendDialog(String prefilledAddress) {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dpToPx(24), dpToPx(12), dpToPx(24), 0);
+
+        EditText etName = new EditText(this);
+        etName.setHint("Nombre del amigo");
+        etName.setSingleLine(true);
+        layout.addView(etName);
+
+        EditText etAddress = new EditText(this);
+        etAddress.setHint("Dirección del amigo");
+        etAddress.setSingleLine(true);
+        if (prefilledAddress != null && !prefilledAddress.isEmpty()) {
+            etAddress.setText(prefilledAddress);
+            etAddress.setSelection(prefilledAddress.length());
+        }
+        layout.addView(etAddress);
+
+        FrameLayout scannerFrame = new FrameLayout(this);
+        scannerFrame.setVisibility(prefilledAddress == null || prefilledAddress.isEmpty() ? View.VISIBLE : View.GONE);
+        LinearLayout.LayoutParams scannerParams = new LinearLayout.LayoutParams(
+                dpToPx(260),
+                dpToPx(260)
+        );
+        scannerParams.gravity = Gravity.CENTER_HORIZONTAL;
+        scannerParams.setMargins(0, dpToPx(12), 0, dpToPx(12));
+
+        DecoratedBarcodeView scannerView = new DecoratedBarcodeView(this);
+        scannerView.setStatusText("");
+        scannerFrame.addView(scannerView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        layout.addView(scannerFrame, scannerParams);
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Agregar amigo")
+                .setView(layout)
+                .setPositiveButton("Guardar", null)
+                .setNegativeButton("Cancelar", null)
+                .create();
+
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String name = etName.getText().toString().trim();
+                String address = etAddress.getText().toString().trim();
+                if (name.isEmpty()) {
+                    etName.setError("Escribe un nombre");
+                    return;
+                }
+                if (address.isEmpty()) {
+                    etAddress.setError("Escanea o escribe la dirección");
+                    return;
+                }
+                saveFriend(name, address, () -> {
+                    dialog.dismiss();
+                    showFriendsDialog();
+                });
+            });
+
+            if (prefilledAddress == null || prefilledAddress.isEmpty()) {
+                scannerFrame.post(() -> startEmbeddedQrScanner(etAddress, scannerView, scannerFrame));
+            }
+        });
+
+        dialog.setOnDismissListener(dialogInterface -> {
+            if (pendingScanAddressEditText == etAddress) {
+                pendingScanAddressEditText = null;
+            }
+            pauseActiveScanner();
+            if (activeScannerView == scannerView) {
+                activeScannerView = null;
+            }
+        });
+
+        dialog.show();
+    }
+
+    private void showSaveFriendDialog(String address) {
+        EditText etName = new EditText(this);
+        etName.setHint("Nombre del amigo");
+        etName.setSingleLine(true);
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Guardar amigo")
+                .setMessage(address)
+                .setView(etName)
+                .setPositiveButton("Guardar", null)
+                .setNegativeButton("Cancelar", null)
+                .create();
+
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String name = etName.getText().toString().trim();
+            if (name.isEmpty()) {
+                etName.setError("Escribe un nombre");
+                return;
+            }
+            saveFriend(name, address, dialog::dismiss);
+        }));
+
+        dialog.show();
+    }
+
+    private void saveFriend(String name, String address, Runnable onSaved) {
+        AuthManager.getInstance().saveContact(
+                contactKeyForAddress(address),
+                name,
+                address,
+                () -> {
+                    Toast.makeText(this, "Amigo guardado", Toast.LENGTH_SHORT).show();
+                    if (onSaved != null) onSaved.run();
+                },
+                message -> Toast.makeText(this, "No se pudo guardar amigo: " + message, Toast.LENGTH_LONG).show()
+        );
+    }
+
+    private String contactKeyForAddress(String address) {
+        return address.replaceAll("[.#$\\[\\]/]", "_");
     }
 
     private void startEmbeddedQrScanner(
