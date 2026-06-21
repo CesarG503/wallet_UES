@@ -64,8 +64,12 @@
 
                 <!-- Balance Section -->
                 <LinearLayout
+                    android:id="@+id/layoutBalanceSummary"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
                     android:orientation="vertical"
                     android:layout_marginTop="36dp">
 
@@ -91,9 +95,20 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="0 sats"
+                        android:text="Disponible para usar"
                         android:textColor="#64748B"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium" />
+
+                    <TextView
+                        android:id="@+id/tvImmatureBalance"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Inmaduro: 0.00000000 UESCoin"
+                        android:textColor="@color/immature_balance"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
                 </LinearLayout>
 
             </LinearLayout>

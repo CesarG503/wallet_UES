@@ -220,12 +220,29 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void checkWalletState() {
-        if (walletManager.hasWallet()) {
-            showDashboard();
-        } else {
-            // No hay wallet local → intentar restaurar desde el backup en Firebase
-            tryRestoreWalletFromCloud();
+        try {
+            Wallet wallet = walletManager.loadWallet();
+            if (wallet != null) {
+                showDashboard();
+                return;
+            }
+        } catch (IOException e) {
+            handleWalletLoadFailure(e);
+            return;
         }
+
+        // No hay wallet local → intentar restaurar desde el backup en Firebase
+        tryRestoreWalletFromCloud();
+    }
+
+    private void handleWalletLoadFailure(Exception e) {
+        Log.e(TAG, "Wallet local ilegible", e);
+        Toast.makeText(
+                this,
+                "La wallet local está dañada. Vamos a restaurarla desde tu backup.",
+                Toast.LENGTH_LONG
+        ).show();
+        tryRestoreWalletFromCloud();
     }
 
     /**
@@ -382,6 +399,9 @@ public class MainActivity extends AppCompatActivity {
 
         binding.btnReceive.setOnClickListener(v -> showReceiveAddress());
         binding.btnSend.setOnClickListener(v -> showSendDialog());
+        binding.layoutBalanceSummary.setOnClickListener(v ->
+                startActivity(new Intent(this, BalanceDetailsActivity.class))
+        );
     }
 
     private void initializeServerWalletOnce() {
@@ -1735,7 +1755,7 @@ public class MainActivity extends AppCompatActivity {
                 loadDashboardTransactions();
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            handleWalletLoadFailure(e);
         }
     }
 
@@ -1818,28 +1838,28 @@ public class MainActivity extends AppCompatActivity {
         lastImmatureMiningSats = summary.immatureMiningSats;
         lastMiningMaturityBlocks = summary.nextMaturityBlocks;
 
-        binding.tvBalance.setText(formatCoinAmount(summary.totalSats));
-        if (summary.immatureMiningSats > 0 || pendingOutgoingSats > 0) {
-            String maturityText = summary.nextMaturityBlocks > 0
-                    ? " · próxima madurez en " + summary.nextMaturityBlocks + " bloques"
-                    : "";
+        binding.tvBalance.setText(formatCoinAmount(displayedSpendableSats));
+        if (summary.immatureMiningSats > 0) {
+            binding.tvImmatureBalance.setVisibility(View.VISIBLE);
+            String immatureText = "Inmaduro: " + formatCoinAmount(summary.immatureMiningSats);
+            if (summary.nextMaturityBlocks > 0) {
+                immatureText += " · madura en " + summary.nextMaturityBlocks + " bloques";
+            }
+            binding.tvImmatureBalance.setText(immatureText);
+        } else {
+            binding.tvImmatureBalance.setVisibility(View.GONE);
+        }
+
+        if (pendingOutgoingSats > 0) {
             StringBuilder balanceDetails = new StringBuilder("Disponible: ")
                     .append(displayedSpendableSats)
                     .append(" sats");
-            if (pendingOutgoingSats > 0) {
-                balanceDetails.append(" · En transferencia: ")
-                        .append(pendingOutgoingSats)
-                        .append(" sats");
-            }
-            if (summary.immatureMiningSats > 0) {
-                balanceDetails.append(" · Minería pendiente: ")
-                        .append(summary.immatureMiningSats)
-                        .append(" sats")
-                        .append(maturityText);
-            }
+            balanceDetails.append(" · En transferencia: ")
+                    .append(pendingOutgoingSats)
+                    .append(" sats");
             binding.tvBalanceSats.setText(balanceDetails.toString());
         } else {
-            binding.tvBalanceSats.setText("Disponible: " + displayedSpendableSats + " sats");
+            binding.tvBalanceSats.setText("Disponible para usar · " + displayedSpendableSats + " sats");
         }
     }
 

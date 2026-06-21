@@ -34,6 +34,8 @@ import org.bitcoinj.wallet.Wallet;
 import android.os.Handler;
 import android.os.Looper;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.ArrayList;
@@ -52,6 +54,7 @@ public class WalletManager {
     private final ExecutorService walletExecutor = Executors.newCachedThreadPool();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Context context;
+    private final Object walletFileLock = new Object();
 
     private WalletManager(Context context) {
         this.context = context.getApplicationContext();
@@ -96,8 +99,8 @@ public class WalletManager {
     }
 
     public boolean hasWallet() {
-        File walletFile = new File(context.getFilesDir(), getWalletFileName());
-        return walletFile.exists();
+        File walletFile = getWalletFile();
+        return walletFile.exists() && walletFile.length() > 0;
     }
 
     public Wallet createWallet(String password) throws IOException {
@@ -133,21 +136,95 @@ public class WalletManager {
     }
 
     public void saveWallet() throws IOException {
-        if (wallet != null) {
-            File walletFile = new File(context.getFilesDir(), getWalletFileName());
+        if (wallet == null) return;
+
+        synchronized (walletFileLock) {
+            File walletFile = getWalletFile();
+            File backupFile = getWalletBackupFile();
+
+            if (walletFile.exists() && walletFile.length() > 0) {
+                copyFile(walletFile, backupFile);
+            }
+
             wallet.saveToFile(walletFile);
         }
     }
 
     public Wallet loadWallet() throws IOException {
-        File walletFile = new File(context.getFilesDir(), getWalletFileName());
-        if (!walletFile.exists()) return null;
+        synchronized (walletFileLock) {
+            File walletFile = getWalletFile();
+            if (!walletFile.exists() || walletFile.length() == 0) return null;
+
+            try {
+                wallet = Wallet.loadFromFile(walletFile);
+                return wallet;
+            } catch (Exception primaryError) {
+                Log.e(TAG, "Error loading wallet, trying local backup", primaryError);
+
+                Wallet backupWallet = tryLoadBackupWallet();
+                if (backupWallet != null) {
+                    wallet = backupWallet;
+                    restoreBackupAsPrimary();
+                    return wallet;
+                }
+
+                quarantineCorruptWallet(walletFile);
+                setHasWalletFlag(false);
+                wallet = null;
+                throw new IOException("Wallet local corrupta. Se requiere restaurar desde el backup.", primaryError);
+            }
+        }
+    }
+
+    private File getWalletFile() {
+        return new File(context.getFilesDir(), getWalletFileName());
+    }
+
+    private File getWalletBackupFile() {
+        return new File(context.getFilesDir(), getWalletFileName() + ".bak");
+    }
+
+    private Wallet tryLoadBackupWallet() {
+        File backupFile = getWalletBackupFile();
+        if (!backupFile.exists() || backupFile.length() == 0) return null;
+
         try {
-            wallet = Wallet.loadFromFile(walletFile);
-            return wallet;
-        } catch (Exception e) {
-            Log.e(TAG, "Error loading wallet", e);
-            throw new IOException("Failed to load wallet", e);
+            return Wallet.loadFromFile(backupFile);
+        } catch (Exception backupError) {
+            Log.e(TAG, "Backup local de wallet también está corrupto", backupError);
+            quarantineCorruptWallet(backupFile);
+            return null;
+        }
+    }
+
+    private void restoreBackupAsPrimary() throws IOException {
+        File backupFile = getWalletBackupFile();
+        File walletFile = getWalletFile();
+        copyFile(backupFile, walletFile);
+    }
+
+    private void quarantineCorruptWallet(File file) {
+        if (file == null || !file.exists()) return;
+
+        File corruptFile = new File(
+                context.getFilesDir(),
+                file.getName() + ".corrupt." + System.currentTimeMillis()
+        );
+        if (!file.renameTo(corruptFile)) {
+            Log.w(TAG, "No se pudo aislar wallet corrupta: " + file.getAbsolutePath());
+        }
+    }
+
+    private void copyFile(File source, File destination) throws IOException {
+        try (FileInputStream inputStream = new FileInputStream(source);
+             FileOutputStream outputStream = new FileOutputStream(destination, false)) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, read);
+            }
+            outputStream.flush();
+            outputStream.getFD().sync();
         }
     }
 
