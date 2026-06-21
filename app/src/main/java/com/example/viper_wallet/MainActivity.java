@@ -506,12 +506,6 @@ public class MainActivity extends AppCompatActivity {
         layout.addView(messageView);
 
         ImageView qrImageView = new ImageView(this);
-        try {
-            qrImageView.setImageBitmap(generateQrBitmap(address));
-        } catch (WriterException e) {
-            Log.w(TAG, "No se pudo generar el QR para la dirección " + address, e);
-            qrImageView.setVisibility(View.GONE);
-        }
         LinearLayout.LayoutParams qrLayoutParams = new LinearLayout.LayoutParams(
                 dpToPx(QR_CODE_SIZE_DP),
                 dpToPx(QR_CODE_SIZE_DP)
@@ -521,20 +515,26 @@ public class MainActivity extends AppCompatActivity {
         layout.addView(qrImageView, qrLayoutParams);
 
         TextView addressView = new TextView(this);
-        addressView.setText(address);
         addressView.setTextIsSelectable(true);
         addressView.setGravity(Gravity.CENTER_HORIZONTAL);
         layout.addView(addressView);
 
-        new MaterialAlertDialogBuilder(this)
+        updateReceiveAddressViews(address, qrImageView, addressView);
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.receive_address_title)
                 .setView(layout)
-                .setNegativeButton("Nueva dirección", (dialog, which) -> createFreshReceiveAddress())
-                .setPositiveButton(R.string.btn_done, (dialog, which) -> dialog.dismiss())
-                .show();
+                .setNeutralButton("Nueva dirección", null)
+                .setPositiveButton(R.string.btn_done, (dialogInterface, which) -> dialogInterface.dismiss())
+                .create();
+
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v ->
+                createFreshReceiveAddress(qrImageView, addressView)
+        ));
+        dialog.show();
     }
 
-    private void createFreshReceiveAddress() {
+    private void createFreshReceiveAddress(ImageView qrImageView, TextView addressView) {
         try {
             String address = walletManager.getFreshReceiveAddress();
             if (address == null) {
@@ -543,9 +543,20 @@ public class MainActivity extends AppCompatActivity {
             }
             binding.tvReceiveAddress.setText(address);
             registerAddressWithServer(address, true);
-            showReceiveAddress();
+            updateReceiveAddressViews(address, qrImageView, addressView);
         } catch (IOException e) {
             Toast.makeText(this, R.string.empty_receive_address, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void updateReceiveAddressViews(String address, ImageView qrImageView, TextView addressView) {
+        addressView.setText(address);
+        try {
+            qrImageView.setImageBitmap(generateQrBitmap(address));
+            qrImageView.setVisibility(View.VISIBLE);
+        } catch (WriterException e) {
+            Log.w(TAG, "No se pudo generar el QR para la dirección " + address, e);
+            qrImageView.setVisibility(View.GONE);
         }
     }
 
