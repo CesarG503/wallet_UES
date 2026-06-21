@@ -2,7 +2,7 @@ package com.example.viper_wallet.models;
 
 public class TransactionRecord {
     private String txId;
-    private String type; // "SEND" o "RECEIVE"
+    private String type; // "SEND", "RECEIVE" o "MINING"
     private long amountSats;
     private String address;
     private long timestamp;

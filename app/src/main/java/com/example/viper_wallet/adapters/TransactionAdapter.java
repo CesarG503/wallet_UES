@@ -35,8 +35,11 @@ public class TransactionAdapter extends RecyclerView.Adapter<TransactionAdapter.
         TransactionRecord tx = transactions.get(position);
         
         boolean isSend = "SEND".equals(tx.getType());
-        holder.tvType.setText(isSend ? "Envío" : "Recepción");
-        holder.ivIcon.setImageResource(isSend ? android.R.drawable.stat_sys_upload : android.R.drawable.stat_sys_download);
+        boolean isMining = "MINING".equals(tx.getType());
+        holder.tvType.setText(isSend ? "Envío" : (isMining ? "Ganancia por minería" : "Recepción"));
+        holder.ivIcon.setImageResource(isSend
+                ? android.R.drawable.stat_sys_upload
+                : (isMining ? android.R.drawable.star_big_on : android.R.drawable.stat_sys_download));
         
         String amountStr = String.format(Locale.US, "%.8f %s", tx.getAmountSats() / 100_000_000.0, Constants.COIN_TICKER);
         holder.tvAmount.setText((isSend ? "-" : "+") + amountStr);

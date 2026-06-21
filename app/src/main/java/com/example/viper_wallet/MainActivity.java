@@ -1,10 +1,14 @@
 package com.example.viper_wallet;
 
 import android.Manifest;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -13,6 +17,7 @@ import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.animation.LinearInterpolator;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -39,6 +44,10 @@ import com.example.viper_wallet.auth.LoginActivity;
 import com.example.viper_wallet.auth.ProfileActivity;
 import com.example.viper_wallet.databinding.ActivityMainBinding;
 import com.example.viper_wallet.models.TransactionRecord;
+import com.example.viper_wallet.network.api.ApiEnvelope;
+import com.example.viper_wallet.network.api.MiningApiClient;
+import com.example.viper_wallet.network.api.MiningSubmitResult;
+import com.example.viper_wallet.network.api.MiningWork;
 import com.example.viper_wallet.network.rpc.BitcoinRpcClient;
 import com.example.viper_wallet.network.rpc.BitcoinRpcResponse;
 import com.example.viper_wallet.network.rpc.BitcoinScanTxOutSetResult;
@@ -60,10 +69,16 @@ import org.bitcoinj.core.Transaction;
 import org.bitcoinj.wallet.Wallet;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -72,6 +87,7 @@ import retrofit2.Response;
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     private static final long BALANCE_REFRESH_INTERVAL_MS = 20_000L;
+    private static final long FALLBACK_REGTEST_BLOCK_REWARD_SATS = 5_000_000_000L;
     private static final int QR_CODE_SIZE_DP = 220;
 
     private ActivityMainBinding binding;
@@ -80,9 +96,26 @@ public class MainActivity extends AppCompatActivity {
     private EditText pendingScanAddressEditText;
     private DecoratedBarcodeView activeScannerView;
     private final Handler balanceHandler = new Handler(Looper.getMainLooper());
+    private final Handler miningHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService miningExecutor = Executors.newSingleThreadExecutor();
     private boolean isBalancePolling;
     private boolean isBalanceRequestInFlight;
     private boolean isServerWalletInitialized;
+    private boolean isMining;
+    private boolean isMiningRequestInFlight;
+    private volatile boolean shouldMineCurrentWork;
+    private String activeMiningAddress;
+    private String activeMiningJobId;
+    private int minedBlocksThisSession;
+    private long minedSatsThisSession;
+    private volatile long miningAttemptsThisJob;
+    private volatile double currentMiningHashRate;
+    private AlertDialog miningDialog;
+    private View miningCircleView;
+    private TextView miningCircleText;
+    private TextView miningStatusText;
+    private TextView miningStatsText;
+    private AnimatorSet miningPulseAnimator;
 
     private final Runnable balanceRefreshRunnable = new Runnable() {
         @Override
@@ -90,6 +123,16 @@ public class MainActivity extends AppCompatActivity {
             refreshBalanceFromRpc();
             if (isBalancePolling) {
                 balanceHandler.postDelayed(this, BALANCE_REFRESH_INTERVAL_MS);
+            }
+        }
+    };
+
+    private final Runnable miningCountdownRunnable = new Runnable() {
+        @Override
+        public void run() {
+            updateMiningStats();
+            if (isMining) {
+                miningHandler.postDelayed(this, 1_000L);
             }
         }
     };
@@ -139,6 +182,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         stopBalancePolling();
+        stopMiningSession();
         pauseActiveScanner();
         super.onPause();
     }
@@ -289,7 +333,7 @@ public class MainActivity extends AppCompatActivity {
         binding.btnReload.setOnClickListener(v -> {
             String address = walletManager.getCurrentReceiveAddress();
             if (address != null) {
-                mineToAddress(address);
+                showMiningDialog(address);
             } else {
                 Toast.makeText(this, "No hay dirección disponible para recargar", Toast.LENGTH_SHORT).show();
             }
@@ -300,7 +344,6 @@ public class MainActivity extends AppCompatActivity {
             PopupMenu popupMenu = new PopupMenu(this, v);
             popupMenu.getMenu().add("Historial completo");
             popupMenu.getMenu().add("Copiar Dirección");
-            popupMenu.getMenu().add("Minar (RegTest)");
             popupMenu.setOnMenuItemClickListener(item -> {
                 if ("Historial completo".equals(item.getTitle())) {
                     startActivity(new Intent(this, com.example.viper_wallet.auth.TransactionHistoryActivity.class));
@@ -314,14 +357,6 @@ public class MainActivity extends AppCompatActivity {
                         Toast.makeText(this, "Dirección copiada", Toast.LENGTH_SHORT).show();
                     } else {
                         Toast.makeText(this, "No hay dirección disponible", Toast.LENGTH_SHORT).show();
-                    }
-                    return true;
-                } else if ("Minar (RegTest)".equals(item.getTitle())) {
-                    String address = walletManager.getCurrentReceiveAddress();
-                    if (address != null) {
-                        mineToAddress(address);
-                    } else {
-                        Toast.makeText(this, "No hay dirección disponible para minar", Toast.LENGTH_SHORT).show();
                     }
                     return true;
                 }
@@ -459,7 +494,6 @@ public class MainActivity extends AppCompatActivity {
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.receive_address_title)
                 .setView(layout)
-                .setNeutralButton("Mine (RegTest)", (dialog, which) -> mineToAddress(address))
                 .setNegativeButton("Nueva dirección", (dialog, which) -> createFreshReceiveAddress())
                 .setPositiveButton(R.string.btn_done, (dialog, which) -> dialog.dismiss())
                 .show();
@@ -569,24 +603,395 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
-    private void mineToAddress(String address) {
-        Toast.makeText(this, "Mining blocks to " + address, Toast.LENGTH_SHORT).show();
-        BitcoinRpcClient.getInstance().generateToAddress(address, 101, new Callback<BitcoinRpcResponse<List<String>>>() {
+    private void showMiningDialog(String address) {
+        if (miningDialog != null && miningDialog.isShowing()) {
+            return;
+        }
+
+        activeMiningAddress = address;
+        registerAddressWithServer(address, false);
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setGravity(Gravity.CENTER_HORIZONTAL);
+        layout.setPadding(dpToPx(24), dpToPx(18), dpToPx(24), dpToPx(8));
+
+        miningCircleView = createMiningCircleView();
+        layout.addView(miningCircleView);
+
+        miningStatusText = new TextView(this);
+        miningStatusText.setGravity(Gravity.CENTER_HORIZONTAL);
+        miningStatusText.setTextColor(ContextCompat.getColor(this, R.color.onSurface));
+        miningStatusText.setTextSize(16);
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        statusParams.setMargins(0, dpToPx(18), 0, 0);
+        layout.addView(miningStatusText, statusParams);
+
+        miningStatsText = new TextView(this);
+        miningStatsText.setGravity(Gravity.CENTER_HORIZONTAL);
+        miningStatsText.setTextColor(Color.parseColor("#64748B"));
+        miningStatsText.setTextSize(13);
+        LinearLayout.LayoutParams statsParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        statsParams.setMargins(0, dpToPx(8), 0, 0);
+        layout.addView(miningStatsText, statsParams);
+
+        TextView addressView = new TextView(this);
+        addressView.setGravity(Gravity.CENTER_HORIZONTAL);
+        addressView.setTextColor(Color.parseColor("#64748B"));
+        addressView.setTextSize(12);
+        addressView.setText(address);
+        addressView.setSingleLine(false);
+        addressView.setTextIsSelectable(true);
+        LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        addressParams.setMargins(0, dpToPx(14), 0, 0);
+        layout.addView(addressView, addressParams);
+
+        miningDialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Recargar minando")
+                .setView(layout)
+                .setNegativeButton("Cerrar", null)
+                .create();
+
+        miningDialog.setOnShowListener(dialog -> startMiningSession(address));
+        miningDialog.setOnDismissListener(dialog -> {
+            stopMiningSession();
+            clearMiningDialogReferences();
+        });
+        miningDialog.show();
+    }
+
+    private View createMiningCircleView() {
+        FrameLayout circle = new FrameLayout(this);
+        int circleSize = dpToPx(236);
+        LinearLayout.LayoutParams circleParams = new LinearLayout.LayoutParams(circleSize, circleSize);
+        circleParams.gravity = Gravity.CENTER_HORIZONTAL;
+        circle.setLayoutParams(circleParams);
+        circle.setClickable(true);
+        circle.setFocusable(true);
+
+        GradientDrawable background = new GradientDrawable();
+        background.setShape(GradientDrawable.OVAL);
+        background.setColor(ContextCompat.getColor(this, R.color.primary));
+        background.setStroke(dpToPx(4), ContextCompat.getColor(this, R.color.tertiary));
+        circle.setBackground(background);
+
+        miningCircleText = new TextView(this);
+        miningCircleText.setGravity(Gravity.CENTER);
+        miningCircleText.setTextColor(ContextCompat.getColor(this, R.color.white));
+        miningCircleText.setTextSize(30);
+        miningCircleText.setTypeface(Typeface.DEFAULT_BOLD);
+        miningCircleText.setText("MINANDO");
+        circle.addView(miningCircleText, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
+        circle.setOnClickListener(v -> toggleMiningSession());
+        return circle;
+    }
+
+    private void startMiningSession(String address) {
+        activeMiningAddress = address;
+        activeMiningJobId = null;
+        minedBlocksThisSession = 0;
+        minedSatsThisSession = 0L;
+        miningAttemptsThisJob = 0L;
+        currentMiningHashRate = 0;
+        isMining = true;
+        updateMiningStatus("Pidiendo trabajo de minería a la red...", true);
+        updateMiningStats();
+        startMiningPulseAnimation();
+        miningHandler.removeCallbacks(miningCountdownRunnable);
+        requestMiningWork();
+        miningHandler.post(miningCountdownRunnable);
+    }
+
+    private void toggleMiningSession() {
+        if (isMining) {
+            stopMiningSession();
+            updateMiningStatus("Minería pausada. Toca el círculo para continuar.", false);
+            updateMiningStats();
+        } else if (activeMiningAddress != null) {
+            isMining = true;
+            updateMiningStatus("Reanudando minería...", true);
+            startMiningPulseAnimation();
+            miningHandler.removeCallbacks(miningCountdownRunnable);
+            requestMiningWork();
+            miningHandler.post(miningCountdownRunnable);
+        }
+    }
+
+    private void stopMiningSession() {
+        isMining = false;
+        shouldMineCurrentWork = false;
+        activeMiningJobId = null;
+        miningHandler.removeCallbacks(miningCountdownRunnable);
+        stopMiningPulseAnimation();
+        if (miningCircleText != null) {
+            miningCircleText.setText("PAUSADO");
+        }
+    }
+
+    private void clearMiningDialogReferences() {
+        miningDialog = null;
+        miningCircleView = null;
+        miningCircleText = null;
+        miningStatusText = null;
+        miningStatsText = null;
+        miningPulseAnimator = null;
+    }
+
+    private void requestMiningWork() {
+        if (!isMining || isMiningRequestInFlight || activeMiningAddress == null) return;
+
+        isMiningRequestInFlight = true;
+        shouldMineCurrentWork = false;
+        miningAttemptsThisJob = 0L;
+        currentMiningHashRate = 0;
+        updateMiningStatus("Solicitando bloque candidato...", true);
+        updateMiningStats();
+
+        MiningApiClient.getInstance().getWork(activeMiningAddress, new Callback<ApiEnvelope<MiningWork>>() {
             @Override
-            public void onResponse(Call<BitcoinRpcResponse<List<String>>> call, Response<BitcoinRpcResponse<List<String>>> response) {
-                if (response.isSuccessful() && response.body() != null && response.body().getError() == null) {
-                    Toast.makeText(MainActivity.this, "Mined successfully!", Toast.LENGTH_SHORT).show();
-                    refreshBalanceFromRpc();
-                } else {
-                    Toast.makeText(MainActivity.this, "Mining failed", Toast.LENGTH_SHORT).show();
+            public void onResponse(Call<ApiEnvelope<MiningWork>> call, Response<ApiEnvelope<MiningWork>> response) {
+                isMiningRequestInFlight = false;
+                ApiEnvelope<MiningWork> body = response.body();
+                if (response.isSuccessful() && body != null && body.getData() != null) {
+                    startMiningWork(body.getData());
+                    return;
                 }
+
+                handleMiningWorkError("No se pudo obtener trabajo de minería");
             }
 
             @Override
-            public void onFailure(Call<BitcoinRpcResponse<List<String>>> call, Throwable t) {
-                Toast.makeText(MainActivity.this, "Network error: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+            public void onFailure(Call<ApiEnvelope<MiningWork>> call, Throwable t) {
+                isMiningRequestInFlight = false;
+                handleMiningWorkError("Error de red pidiendo trabajo: " + t.getMessage());
             }
         });
+    }
+
+    private void startMiningWork(MiningWork work) {
+        if (!isMining || work.getJobId() == null || work.getPayloadPrefix() == null) return;
+
+        activeMiningJobId = work.getJobId();
+        shouldMineCurrentWork = true;
+        miningAttemptsThisJob = 0L;
+        currentMiningHashRate = 0;
+        updateMiningStatus("Minando bloque #" + work.getHeight() + " · objetivo " + work.getTargetPrefix(), true);
+        updateMiningStats();
+
+        miningExecutor.execute(() -> mineWorkInBackground(work));
+    }
+
+    private void mineWorkInBackground(MiningWork work) {
+        long nonce = Math.max(0L, System.nanoTime());
+        long attempts = 0L;
+        long startedAt = System.currentTimeMillis();
+        long lastUiUpdateAt = startedAt;
+
+        while (isMining && shouldMineCurrentWork && work.getJobId().equals(activeMiningJobId)) {
+            String nonceString = Long.toUnsignedString(nonce);
+            String hash = doubleSha256Hex(work.getPayloadPrefix() + nonceString);
+            attempts++;
+            miningAttemptsThisJob = attempts;
+
+            long now = System.currentTimeMillis();
+            if (now - lastUiUpdateAt >= 1_000L) {
+                currentMiningHashRate = attempts * 1_000.0 / Math.max(1L, now - startedAt);
+                lastUiUpdateAt = now;
+                runOnUiThread(this::updateMiningStats);
+            }
+
+            if (hash != null && hashMeetsTarget(hash, work.getTargetPrefix())) {
+                currentMiningHashRate = attempts * 1_000.0 / Math.max(1L, now - startedAt);
+                String finalNonce = nonceString;
+                String finalHash = hash;
+                long finalAttempts = attempts;
+                runOnUiThread(() -> submitMiningSolution(work, finalNonce, finalHash, finalAttempts, currentMiningHashRate));
+                return;
+            }
+
+            nonce++;
+        }
+    }
+
+    private String doubleSha256Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] first = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            byte[] second = digest.digest(first);
+            return toHex(second);
+        } catch (NoSuchAlgorithmException e) {
+            Log.e(TAG, "SHA-256 no disponible", e);
+            return null;
+        }
+    }
+
+    private boolean hashMeetsTarget(String hash, String targetPrefix) {
+        return hash != null
+                && targetPrefix != null
+                && hash.toLowerCase(Locale.US).startsWith(targetPrefix.toLowerCase(Locale.US));
+    }
+
+    private void submitMiningSolution(
+            MiningWork work,
+            String nonce,
+            String hash,
+            long attempts,
+            double hashRate
+    ) {
+        if (!isMining || activeMiningAddress == null || !work.getJobId().equals(activeMiningJobId)) return;
+
+        shouldMineCurrentWork = false;
+        isMiningRequestInFlight = true;
+        updateMiningStatus("Solución encontrada. Enviando prueba a la red...", true);
+        updateMiningStats();
+
+        MiningApiClient.getInstance().submitSolution(
+                work.getJobId(),
+                activeMiningAddress,
+                nonce,
+                attempts,
+                hashRate,
+                new Callback<ApiEnvelope<MiningSubmitResult>>() {
+                    @Override
+                    public void onResponse(
+                            Call<ApiEnvelope<MiningSubmitResult>> call,
+                            Response<ApiEnvelope<MiningSubmitResult>> response
+                    ) {
+                        isMiningRequestInFlight = false;
+                        ApiEnvelope<MiningSubmitResult> body = response.body();
+                        MiningSubmitResult result = body != null ? body.getData() : null;
+
+                        if (response.isSuccessful() && result != null && result.isAccepted()) {
+                            finishMinedBlock(result);
+                            return;
+                        }
+
+                        String message = result != null && result.getMessage() != null
+                                ? result.getMessage()
+                                : "Otro usuario ganó o la solución expiró";
+                        handleMiningWorkError(message);
+                    }
+
+                    @Override
+                    public void onFailure(Call<ApiEnvelope<MiningSubmitResult>> call, Throwable t) {
+                        isMiningRequestInFlight = false;
+                        handleMiningWorkError("Error enviando solución: " + t.getMessage());
+                    }
+                }
+        );
+    }
+
+    private void finishMinedBlock(MiningSubmitResult result) {
+        long rewardSats = result.getRewardSats() > 0
+                ? result.getRewardSats()
+                : FALLBACK_REGTEST_BLOCK_REWARD_SATS;
+        String blockHash = result.getBlockHash() != null
+                ? result.getBlockHash()
+                : "job_" + result.getJobId();
+
+        minedBlocksThisSession++;
+        minedSatsThisSession += rewardSats;
+
+        AuthManager.getInstance().saveTransaction(new TransactionRecord(
+                "mining_" + blockHash,
+                "MINING",
+                rewardSats,
+                activeMiningAddress
+        ));
+
+        String shortHash = blockHash.length() > 12 ? blockHash.substring(0, 12) : blockHash;
+        updateMiningStatus("Ganaste el bloque " + shortHash + ". Recompensa: " + formatCoinAmount(rewardSats), isMining);
+        updateMiningStats();
+        refreshBalanceFromRpc();
+        loadDashboardTransactions();
+
+        if (isMining) {
+            requestMiningWork();
+        }
+    }
+
+    private void handleMiningWorkError(String message) {
+        Log.w(TAG, message);
+        updateMiningStatus(message, isMining);
+        updateMiningStats();
+
+        if (isMining) {
+            miningHandler.postDelayed(this::requestMiningWork, 1_500L);
+        }
+    }
+
+    private void updateMiningStatus(String message, boolean miningNow) {
+        if (miningCircleText != null) {
+            miningCircleText.setText(miningNow ? "MINANDO" : "PAUSADO");
+        }
+        if (miningStatusText != null) {
+            miningStatusText.setText(message);
+        }
+    }
+
+    private void updateMiningStats() {
+        if (miningStatsText == null) return;
+
+        StringBuilder stats = new StringBuilder();
+        stats.append("Bloques ganados: ")
+                .append(minedBlocksThisSession)
+                .append(" · Total: ")
+                .append(formatCoinAmount(minedSatsThisSession));
+
+        if (activeMiningJobId != null) {
+            stats.append("\nIntentos: ")
+                    .append(miningAttemptsThisJob)
+                    .append(" · ")
+                    .append(String.format(Locale.US, "%.0f H/s", currentMiningHashRate));
+        }
+
+        if (isMiningRequestInFlight) {
+            stats.append("\nEsperando respuesta de la red...");
+        }
+
+        miningStatsText.setText(stats.toString());
+    }
+
+    private void startMiningPulseAnimation() {
+        if (miningCircleView == null) return;
+        if (miningPulseAnimator != null && miningPulseAnimator.isStarted()) return;
+
+        ObjectAnimator scaleX = ObjectAnimator.ofFloat(miningCircleView, View.SCALE_X, 1f, 1.08f, 1f);
+        ObjectAnimator scaleY = ObjectAnimator.ofFloat(miningCircleView, View.SCALE_Y, 1f, 1.08f, 1f);
+        scaleX.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        scaleY.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        scaleX.setDuration(1_150L);
+        scaleY.setDuration(1_150L);
+        scaleX.setInterpolator(new LinearInterpolator());
+        scaleY.setInterpolator(new LinearInterpolator());
+
+        miningPulseAnimator = new AnimatorSet();
+        miningPulseAnimator.playTogether(scaleX, scaleY);
+        miningPulseAnimator.start();
+    }
+
+    private void stopMiningPulseAnimation() {
+        if (miningPulseAnimator != null) {
+            miningPulseAnimator.cancel();
+            miningPulseAnimator = null;
+        }
+        if (miningCircleView != null) {
+            miningCircleView.setScaleX(1f);
+            miningCircleView.setScaleY(1f);
+        }
     }
 
     private void showSendDialog() {
@@ -1054,6 +1459,7 @@ public class MainActivity extends AppCompatActivity {
                 BitcoinScanTxOutSetResult result = body.getResult();
                 if (result.isSuccess()) {
                     displayBalance(result.getTotalSats());
+                    saveIncomingTransactionsFromUtxos(result, addresses);
                 }
             }
 
@@ -1066,9 +1472,54 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void displayBalance(long sats) {
-        String balance = String.format(Locale.US, "%.8f %s", sats / 100_000_000.0, Constants.COIN_TICKER);
-        binding.tvBalance.setText(balance);
+        binding.tvBalance.setText(formatCoinAmount(sats));
         binding.tvBalanceSats.setText(sats + " sats");
+    }
+
+    private void saveIncomingTransactionsFromUtxos(
+            BitcoinScanTxOutSetResult result,
+            List<String> walletAddresses
+    ) {
+        if (result.getUnspents() == null || walletAddresses == null || walletAddresses.isEmpty()) return;
+
+        Map<String, IncomingTransactionSummary> incomingByTxId = new LinkedHashMap<>();
+        for (BitcoinScanTxOutSetResult.Unspent unspent : result.getUnspents()) {
+            if (unspent == null || unspent.isCoinbase() || unspent.getTxid() == null) continue;
+
+            String ownerAddress = findOwnerAddress(unspent, walletAddresses);
+            if (ownerAddress == null) continue;
+
+            IncomingTransactionSummary summary = incomingByTxId.get(unspent.getTxid());
+            if (summary == null) {
+                summary = new IncomingTransactionSummary(ownerAddress);
+                incomingByTxId.put(unspent.getTxid(), summary);
+            }
+            summary.amountSats += unspent.getAmountSats();
+        }
+
+        if (incomingByTxId.isEmpty()) return;
+
+        AuthManager authManager = AuthManager.getInstance();
+        for (Map.Entry<String, IncomingTransactionSummary> entry : incomingByTxId.entrySet()) {
+            IncomingTransactionSummary summary = entry.getValue();
+            authManager.saveTransactionIfAbsent(
+                    new TransactionRecord(entry.getKey(), "RECEIVE", summary.amountSats, summary.address),
+                    this::loadDashboardTransactions
+            );
+        }
+    }
+
+    private static class IncomingTransactionSummary {
+        private final String address;
+        private long amountSats;
+
+        private IncomingTransactionSummary(String address) {
+            this.address = address;
+        }
+    }
+
+    private String formatCoinAmount(long sats) {
+        return String.format(Locale.US, "%.8f %s", sats / 100_000_000.0, Constants.COIN_TICKER);
     }
 
     private BitcoinRpcResponse<?> parseErrorResponse(Response<?> response) {

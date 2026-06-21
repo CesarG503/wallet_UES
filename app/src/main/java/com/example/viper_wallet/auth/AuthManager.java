@@ -216,6 +216,32 @@ public class AuthManager {
                 .addOnFailureListener(e -> android.util.Log.e("AuthManager", "Error saving tx", e));
     }
 
+    public void saveTransactionIfAbsent(TransactionRecord transaction, Runnable onSaved) {
+        FirebaseUser user = auth.getCurrentUser();
+        if (user == null || transaction == null || transaction.getTxId() == null) return;
+
+        DatabaseReference txRef = dbRef.child("users").child(user.getUid())
+                .child("transactions").child(transaction.getTxId());
+
+        txRef.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot snapshot) {
+                if (snapshot.exists()) return;
+
+                txRef.setValue(transaction)
+                        .addOnSuccessListener(aVoid -> {
+                            if (onSaved != null) onSaved.run();
+                        })
+                        .addOnFailureListener(e -> android.util.Log.e("AuthManager", "Error saving tx", e));
+            }
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+                android.util.Log.e("AuthManager", "Error checking tx", error.toException());
+            }
+        });
+    }
+
     public void getTransactions(TransactionsCallback callback) {
         FirebaseUser user = auth.getCurrentUser();
         if (user == null) {
