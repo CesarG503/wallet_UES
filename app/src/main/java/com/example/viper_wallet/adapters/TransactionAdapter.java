@@ -16,11 +16,21 @@ import java.util.Locale;
 
 public class TransactionAdapter extends RecyclerView.Adapter<TransactionAdapter.ViewHolder> {
 
+    public interface OnTransactionClickListener {
+        void onTransactionClick(TransactionRecord transaction);
+    }
+
     private final List<TransactionRecord> transactions;
+    private final OnTransactionClickListener listener;
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("dd MMM, yyyy - HH:mm", Locale.getDefault());
 
     public TransactionAdapter(List<TransactionRecord> transactions) {
+        this(transactions, null);
+    }
+
+    public TransactionAdapter(List<TransactionRecord> transactions, OnTransactionClickListener listener) {
         this.transactions = transactions;
+        this.listener = listener;
     }
 
     @NonNull
@@ -48,6 +58,13 @@ public class TransactionAdapter extends RecyclerView.Adapter<TransactionAdapter.
         if (tx.getTimestamp() != 0) {
             holder.tvDate.setText(dateFormat.format(new java.util.Date(tx.getTimestamp())));
         }
+
+        holder.itemView.setOnClickListener(v -> {
+            if (listener != null) {
+                listener.onTransactionClick(tx);
+            }
+        });
+        holder.itemView.setClickable(listener != null);
     }
 
     @Override

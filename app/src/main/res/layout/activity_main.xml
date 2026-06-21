@@ -95,9 +95,10 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="Disponible para usar"
+                        android:text=""
                         android:textColor="#64748B"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium" />
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:visibility="gone" />
 
                     <TextView
                         android:id="@+id/tvImmatureBalance"

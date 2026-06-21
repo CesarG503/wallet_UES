@@ -1862,15 +1862,14 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (pendingOutgoingSats > 0) {
-            StringBuilder balanceDetails = new StringBuilder("Disponible: ")
-                    .append(displayedSpendableSats)
-                    .append(" sats");
-            balanceDetails.append(" · En transferencia: ")
+            StringBuilder balanceDetails = new StringBuilder("En transferencia: ")
                     .append(pendingOutgoingSats)
                     .append(" sats");
             binding.tvBalanceSats.setText(balanceDetails.toString());
+            binding.tvBalanceSats.setVisibility(View.VISIBLE);
         } else {
-            binding.tvBalanceSats.setText("Disponible para usar · " + displayedSpendableSats + " sats");
+            binding.tvBalanceSats.setText("");
+            binding.tvBalanceSats.setVisibility(View.GONE);
         }
     }
 
@@ -2048,7 +2047,10 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     binding.tvEmptyStateDashboard.setVisibility(View.GONE);
                     binding.rvTransactionsDashboard.setVisibility(View.VISIBLE);
-                    TransactionAdapter adapter = new TransactionAdapter(transactions);
+                    TransactionAdapter adapter = new TransactionAdapter(
+                            transactions,
+                            transaction -> TransactionDetailsDialog.show(MainActivity.this, transaction)
+                    );
                     binding.rvTransactionsDashboard.setAdapter(adapter);
                 }
             }
