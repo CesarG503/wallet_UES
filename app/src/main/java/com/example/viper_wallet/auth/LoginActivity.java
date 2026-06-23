@@ -19,6 +19,9 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.auth.AuthCredential;
+import com.google.firebase.auth.EmailAuthProvider;
+import com.google.firebase.auth.GoogleAuthProvider;
 
 /**
  * Pantalla de inicio de sesión.
@@ -46,6 +49,10 @@ public class LoginActivity extends AppCompatActivity {
 
     /** Evita que onStart dispare biometría múltiples veces en el mismo ciclo de vida. */
     private boolean biometricTriggered = false;
+
+    private String pendingEmail = "";
+    private String pendingPassword = "";
+    private boolean isLinkingFlow = false;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Lifecycle
@@ -167,58 +174,79 @@ public class LoginActivity extends AppCompatActivity {
         authManager.signInWithGoogle(idToken, new AuthManager.AuthCallback() {
             @Override
             public void onSuccess(FirebaseUser user) {
-                // Verificar si la cuenta ya tiene una wallet registrada en Realtime Database
-                authManager.checkUserExists(user.getUid(), new AuthManager.CheckUserCallback() {
-                    @Override
-                    public void onResult(boolean exists) {
-                        if (!exists) {
-                            // No tiene wallet en la nube -> borrar el usuario de Firebase Auth y no permitir entrada
-                            FirebaseUser firebaseUser = FirebaseAuth.getInstance().getCurrentUser();
-                            if (firebaseUser != null) {
-                                firebaseUser.delete().addOnCompleteListener(deleteTask -> {
-                                    FirebaseAuth.getInstance().signOut();
-                                    mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
-                                        setLoading(false);
-                                        Toast.makeText(LoginActivity.this,
-                                                "No se encontró una wallet asociada. Por favor regístrate.",
-                                                Toast.LENGTH_LONG).show();
-                                    });
-                                });
-                            } else {
-                                FirebaseAuth.getInstance().signOut();
-                                mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
-                                    setLoading(false);
-                                    Toast.makeText(LoginActivity.this,
-                                            "No se encontró una wallet asociada. Por favor regístrate.",
-                                            Toast.LENGTH_LONG).show();
-                                    });
-                            }
+                if (isLinkingFlow) {
+                    isLinkingFlow = false;
+                    AuthCredential credential = EmailAuthProvider.getCredential(pendingEmail, pendingPassword);
+                    user.linkWithCredential(credential).addOnCompleteListener(linkTask -> {
+                        if (linkTask.isSuccessful()) {
+                            Toast.makeText(LoginActivity.this, "Cuenta vinculada exitosamente.", Toast.LENGTH_SHORT).show();
+                            verifyWalletAndProceed(user);
                         } else {
-                            // Sí existe la wallet -> permitir entrada
-                            setLoading(false);
-                            biometricTriggered = true;
-                            showBiometricWaitState();
-                            requestBiometrics();
+                            Toast.makeText(LoginActivity.this, "Error al vincular: " + linkTask.getException().getMessage(), Toast.LENGTH_LONG).show();
+                            FirebaseAuth.getInstance().signOut();
+                            mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
+                                setLoading(false);
+                            });
                         }
-                    }
-
-                    @Override
-                    public void onError(String message) {
-                        FirebaseAuth.getInstance().signOut();
-                        mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
-                            setLoading(false);
-                            Toast.makeText(LoginActivity.this,
-                                    "Error al verificar cuenta: " + message,
-                                    Toast.LENGTH_LONG).show();
-                        });
-                    }
-                });
+                    });
+                } else {
+                    verifyWalletAndProceed(user);
+                }
             }
 
             @Override
             public void onError(String message) {
                 setLoading(false);
                 Toast.makeText(LoginActivity.this, "Error Google: " + message, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private void verifyWalletAndProceed(FirebaseUser user) {
+        // Verificar si la cuenta ya tiene una wallet registrada en Realtime Database
+        authManager.checkUserExists(user.getUid(), new AuthManager.CheckUserCallback() {
+            @Override
+            public void onResult(boolean exists) {
+                if (!exists) {
+                    // No tiene wallet en la nube -> borrar el usuario de Firebase Auth y no permitir entrada
+                    FirebaseUser firebaseUser = FirebaseAuth.getInstance().getCurrentUser();
+                    if (firebaseUser != null) {
+                        firebaseUser.delete().addOnCompleteListener(deleteTask -> {
+                            FirebaseAuth.getInstance().signOut();
+                            mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
+                                setLoading(false);
+                                Toast.makeText(LoginActivity.this,
+                                        "No se encontró una wallet asociada. Por favor regístrate.",
+                                        Toast.LENGTH_LONG).show();
+                            });
+                        });
+                    } else {
+                        FirebaseAuth.getInstance().signOut();
+                        mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
+                            setLoading(false);
+                            Toast.makeText(LoginActivity.this,
+                                    "No se encontró una wallet asociada. Por favor regístrate.",
+                                    Toast.LENGTH_LONG).show();
+                            });
+                    }
+                } else {
+                    // Sí existe la wallet -> permitir entrada
+                    setLoading(false);
+                    biometricTriggered = true;
+                    showBiometricWaitState();
+                    requestBiometrics();
+                }
+            }
+
+            @Override
+            public void onError(String message) {
+                FirebaseAuth.getInstance().signOut();
+                mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
+                    setLoading(false);
+                    Toast.makeText(LoginActivity.this,
+                            "Error al verificar cuenta: " + message,
+                            Toast.LENGTH_LONG).show();
+                });
             }
         });
     }
@@ -240,54 +268,48 @@ public class LoginActivity extends AppCompatActivity {
         authManager.login(email, password, new AuthManager.AuthCallback() {
             @Override
             public void onSuccess(FirebaseUser user) {
-                // Verificar si la cuenta ya tiene una wallet registrada en Realtime Database
-                authManager.checkUserExists(user.getUid(), new AuthManager.CheckUserCallback() {
-                    @Override
-                    public void onResult(boolean exists) {
-                        if (!exists) {
-                            // No tiene wallet en la nube -> borrar de Auth y no permitir entrada
-                            FirebaseUser firebaseUser = FirebaseAuth.getInstance().getCurrentUser();
-                            if (firebaseUser != null) {
-                                firebaseUser.delete().addOnCompleteListener(deleteTask -> {
-                                    FirebaseAuth.getInstance().signOut();
-                                    setLoading(false);
-                                    Toast.makeText(LoginActivity.this,
-                                            "No se encontró una wallet asociada. Por favor regístrate.",
-                                            Toast.LENGTH_LONG).show();
-                                });
-                            } else {
-                                FirebaseAuth.getInstance().signOut();
-                                setLoading(false);
-                                Toast.makeText(LoginActivity.this,
-                                        "No se encontró una wallet asociada. Por favor regístrate.",
-                                        Toast.LENGTH_LONG).show();
-                            }
-                        } else {
-                            // Sí existe la wallet -> permitir entrada
-                            setLoading(false);
-                            biometricTriggered = true;
-                            showBiometricWaitState();
-                            requestBiometrics();
-                        }
-                    }
-
-                    @Override
-                    public void onError(String message) {
-                        FirebaseAuth.getInstance().signOut();
-                        setLoading(false);
-                        Toast.makeText(LoginActivity.this,
-                                "Error al verificar cuenta: " + message,
-                                Toast.LENGTH_LONG).show();
-                    }
-                });
+                verifyWalletAndProceed(user);
             }
 
             @Override
             public void onError(String message) {
-                setLoading(false);
-                Toast.makeText(LoginActivity.this, "Error: " + message, Toast.LENGTH_LONG).show();
+                // Verificar si la cuenta existe únicamente con Google
+                authManager.fetchSignInMethods(email, methodsTask -> {
+                    boolean isGoogleOnly = false;
+                    if (methodsTask.isSuccessful() && methodsTask.getResult() != null) {
+                        java.util.List<String> methods = methodsTask.getResult().getSignInMethods();
+                        if (methods != null && methods.contains(GoogleAuthProvider.PROVIDER_ID) 
+                                && !methods.contains(EmailAuthProvider.PROVIDER_ID)) {
+                            isGoogleOnly = true;
+                        }
+                    }
+                    if (isGoogleOnly) {
+                        setLoading(false);
+                        showLinkDialog(email, password, message);
+                    } else {
+                        setLoading(false);
+                        Toast.makeText(LoginActivity.this, "Error: " + message, Toast.LENGTH_LONG).show();
+                    }
+                });
             }
         });
+    }
+
+    private void showLinkDialog(String email, String password, String originalError) {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Cuenta de Google detectada")
+                .setMessage("Esta cuenta está registrada con Google. ¿Deseas iniciar sesión con Google para vincular tu contraseña actual y poder usar ambos métodos de inicio de sesión?")
+                .setPositiveButton("Sí, vincular", (dialog, which) -> {
+                    pendingEmail = email;
+                    pendingPassword = password;
+                    isLinkingFlow = true;
+                    signInWithGoogle();
+                })
+                .setNegativeButton("Cancelar", (dialog, which) -> {
+                    Toast.makeText(LoginActivity.this, "Error: " + originalError, Toast.LENGTH_LONG).show();
+                })
+                .setCancelable(false)
+                .show();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
