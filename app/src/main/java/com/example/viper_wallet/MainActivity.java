@@ -14,6 +14,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
 import android.util.Log;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -24,6 +25,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.text.TextUtils;
 import android.widget.ScrollView;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -367,35 +369,8 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Servicios / Popup Menu
-        binding.btnServices.setOnClickListener(v -> {
-            PopupMenu popupMenu = new PopupMenu(this, v);
-            popupMenu.getMenu().add("Historial completo");
-            popupMenu.getMenu().add("Amigos");
-            popupMenu.getMenu().add("Copiar Dirección");
-            popupMenu.setOnMenuItemClickListener(item -> {
-                if ("Historial completo".equals(item.getTitle())) {
-                    startActivity(new Intent(this, com.example.viper_wallet.auth.TransactionHistoryActivity.class));
-                    return true;
-                } else if ("Amigos".equals(item.getTitle())) {
-                    showFriendsDialog();
-                    return true;
-                } else if ("Copiar Dirección".equals(item.getTitle())) {
-                    String address = walletManager.getCurrentReceiveAddress();
-                    if (address != null) {
-                        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                        android.content.ClipData clip = android.content.ClipData.newPlainText("Dirección de Recepción", address);
-                        clipboard.setPrimaryClip(clip);
-                        Toast.makeText(this, "Dirección copiada", Toast.LENGTH_SHORT).show();
-                    } else {
-                        Toast.makeText(this, "No hay dirección disponible", Toast.LENGTH_SHORT).show();
-                    }
-                    return true;
-                }
-                return false;
-            });
-            popupMenu.show();
-        });
+        // Servicios
+        binding.btnServices.setOnClickListener(v -> showServicesDialog());
 
         binding.btnReceive.setOnClickListener(v -> showReceiveAddress());
         binding.btnSend.setOnClickListener(v -> showSendDialog());
@@ -1179,32 +1154,139 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void showServicesDialog() {
+        android.widget.GridLayout gridLayout = new android.widget.GridLayout(this);
+        gridLayout.setColumnCount(2);
+        gridLayout.setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16));
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Servicios")
+                .setView(gridLayout)
+                .create();
+
+        gridLayout.addView(createServiceCard("Historial", R.drawable.ic_history_mdi, v -> {
+            dialog.dismiss();
+            startActivity(new Intent(this, com.example.viper_wallet.auth.TransactionHistoryActivity.class));
+        }));
+
+        gridLayout.addView(createServiceCard("Amigos", R.drawable.ic_people_mdi, v -> {
+            dialog.dismiss();
+            showFriendsDialog();
+        }));
+
+        gridLayout.addView(createServiceCard("Mi QR", R.drawable.ic_qrcode_mdi, v -> {
+            dialog.dismiss();
+            showReceiveAddress();
+        }));
+
+        gridLayout.addView(createServiceCard("Copiar Dir.", R.drawable.ic_copy_mdi, v -> {
+            dialog.dismiss();
+            String address = walletManager.getCurrentReceiveAddress();
+            if (address != null) {
+                android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                android.content.ClipData clip = android.content.ClipData.newPlainText("Dirección", address);
+                clipboard.setPrimaryClip(clip);
+                Toast.makeText(this, "Dirección copiada", Toast.LENGTH_SHORT).show();
+            }
+        }));
+
+        dialog.show();
+    }
+
+    private View createServiceCard(String title, int iconRes, View.OnClickListener listener) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(Gravity.CENTER);
+        card.setPadding(dpToPx(12), dpToPx(20), dpToPx(12), dpToPx(20));
+        card.setClickable(true);
+        card.setFocusable(true);
+
+        // Usar colorPrimaryContainer para que coincida exactamente con los botones circulares del dashboard
+        TypedValue typedValue = new TypedValue();
+        getTheme().resolveAttribute(com.google.android.material.R.attr.colorPrimaryContainer, typedValue, true);
+        int containerColor = typedValue.data;
+        
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(containerColor);
+        bg.setCornerRadius(dpToPx(20));
+
+        TypedValue outValue = new TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, outValue, true);
+        android.graphics.drawable.RippleDrawable ripple = new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(Color.parseColor("#20000000")),
+                bg,
+                null
+        );
+        card.setBackground(ripple);
+        card.setElevation(dpToPx(1));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        // Usar colorPrimary para que coincida con los iconos del dashboard
+        TypedValue iconColorValue = new TypedValue();
+        getTheme().resolveAttribute(androidx.appcompat.R.attr.colorPrimary, iconColorValue, true);
+        icon.setColorFilter(iconColorValue.data);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dpToPx(30), dpToPx(30));
+        iconParams.setMargins(0, 0, 0, dpToPx(10));
+        card.addView(icon, iconParams);
+
+        TextView label = new TextView(this);
+        label.setText(title);
+        label.setTextSize(14);
+        label.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        
+        // Usar colorOnPrimaryContainer para garantizar legibilidad sobre el fondo morado/vibrante
+        TypedValue textColorValue = new TypedValue();
+        getTheme().resolveAttribute(com.google.android.material.R.attr.colorOnPrimaryContainer, textColorValue, true);
+        label.setTextColor(textColorValue.data);
+
+        label.setGravity(Gravity.CENTER);
+        card.addView(label);
+
+        card.setOnClickListener(listener);
+
+        android.widget.GridLayout.LayoutParams params = new android.widget.GridLayout.LayoutParams();
+        params.width = 0;
+        params.height = android.widget.GridLayout.LayoutParams.WRAP_CONTENT;
+        params.columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f);
+        params.setMargins(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8));
+        card.setLayoutParams(params);
+
+        return card;
+    }
+
     private void showFriendsDialog() {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dpToPx(20), dpToPx(12), dpToPx(20), 0);
+        content.setPadding(dpToPx(20), dpToPx(16), dpToPx(20), dpToPx(16));
+
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        buttonParams.setMargins(0, 0, 0, dpToPx(8));
 
         MaterialButton btnAddFriend = new MaterialButton(this);
         btnAddFriend.setText("Agregar amigo con QR");
         btnAddFriend.setIconResource(android.R.drawable.ic_input_add);
+        btnAddFriend.setLayoutParams(buttonParams);
         content.addView(btnAddFriend);
 
         MaterialButton btnSendByQr = new MaterialButton(this);
         btnSendByQr.setText("Enviar escaneando QR");
         btnSendByQr.setIconResource(android.R.drawable.ic_menu_camera);
+        btnSendByQr.setLayoutParams(buttonParams);
         content.addView(btnSendByQr);
 
         TextView loadingView = new TextView(this);
         loadingView.setText("Cargando amigos...");
         loadingView.setGravity(Gravity.CENTER_HORIZONTAL);
-        loadingView.setPadding(0, dpToPx(16), 0, dpToPx(16));
+        loadingView.setPadding(0, dpToPx(24), 0, dpToPx(24));
         content.addView(loadingView);
 
         ScrollView scrollView = new ScrollView(this);
         scrollView.addView(content);
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle("Amigos")
+                .setTitle("Mis Amigos")
                 .setView(scrollView)
                 .setNegativeButton("Cerrar", null)
                 .create();
@@ -1226,13 +1308,32 @@ public class MainActivity extends AppCompatActivity {
                     TextView emptyView = new TextView(MainActivity.this);
                     emptyView.setText("Aún no tienes amigos guardados.");
                     emptyView.setGravity(Gravity.CENTER_HORIZONTAL);
-                    emptyView.setPadding(0, dpToPx(16), 0, dpToPx(16));
+                    emptyView.setPadding(0, dpToPx(24), 0, dpToPx(24));
+                    emptyView.setTextColor(Color.parseColor("#64748B"));
                     content.addView(emptyView);
                     return;
                 }
 
-                for (AuthManager.Contact contact : contacts) {
+                // Ordenar alfabéticamente por nombre
+                java.util.Collections.sort(contacts, (c1, c2) -> {
+                    String n1 = c1.getName() != null ? c1.getName() : "";
+                    String n2 = c2.getName() != null ? c2.getName() : "";
+                    return n1.compareToIgnoreCase(n2);
+                });
+
+                for (int i = 0; i < contacts.size(); i++) {
+                    AuthManager.Contact contact = contacts.get(i);
                     content.addView(createFriendRow(contact, dialog));
+
+                    if (i < contacts.size() - 1) {
+                        View divider = new View(MainActivity.this);
+                        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(1));
+                        lp.setMargins(dpToPx(56), 0, 0, 0); // Skip icon space
+                        divider.setLayoutParams(lp);
+                        divider.setBackgroundColor(Color.parseColor("#EEEEEE"));
+                        content.addView(divider);
+                    }
                 }
             }
 
@@ -1247,37 +1348,84 @@ public class MainActivity extends AppCompatActivity {
 
     private View createFriendRow(AuthManager.Contact contact, AlertDialog parentDialog) {
         LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(0, dpToPx(14), 0, dpToPx(14));
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dpToPx(12), 0, dpToPx(12));
+
+        String name = contact.getName() != null && !contact.getName().isEmpty() ? contact.getName() : "Sin nombre";
+        String initial = name.substring(0, 1).toUpperCase(Locale.US);
+
+        // Icono circular con inicial
+        TextView iconView = new TextView(this);
+        int iconSize = dpToPx(42);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(iconSize, iconSize);
+        iconParams.setMargins(0, 0, dpToPx(14), 0);
+        iconView.setLayoutParams(iconParams);
+        iconView.setGravity(Gravity.CENTER);
+        iconView.setText(initial);
+        iconView.setTextColor(Color.WHITE);
+        iconView.setTextSize(18);
+        iconView.setTypeface(Typeface.DEFAULT_BOLD);
+
+        GradientDrawable iconBg = new GradientDrawable();
+        iconBg.setShape(GradientDrawable.OVAL);
+        iconBg.setColor(getContactColor(name));
+        iconView.setBackground(iconBg);
+        row.addView(iconView);
+
+        // Info: Nombre y Dirección
+        LinearLayout infoLayout = new LinearLayout(this);
+        infoLayout.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams infoParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        infoLayout.setLayoutParams(infoParams);
 
         TextView nameView = new TextView(this);
-        nameView.setText(contact.getName() != null && !contact.getName().isEmpty() ? contact.getName() : "Sin nombre");
+        nameView.setText(name);
         nameView.setTextSize(16);
         nameView.setTypeface(Typeface.DEFAULT_BOLD);
-        row.addView(nameView);
+        nameView.setTextColor(ContextCompat.getColor(this, R.color.onSurface));
+        infoLayout.addView(nameView);
 
         TextView addressView = new TextView(this);
         addressView.setText(contact.getPublicKey());
         addressView.setTextSize(12);
         addressView.setTextColor(Color.parseColor("#64748B"));
-        addressView.setTextIsSelectable(true);
-        row.addView(addressView);
+        addressView.setSingleLine(true);
+        addressView.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        infoLayout.addView(addressView);
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setGravity(Gravity.END);
-        actions.setPadding(0, dpToPx(8), 0, 0);
+        row.addView(infoLayout);
 
+        // Botón Enviar (más compacto)
         MaterialButton btnTransfer = new MaterialButton(this);
-        btnTransfer.setText("Transferir");
+        btnTransfer.setText("Enviar");
+        btnTransfer.setPadding(dpToPx(8), 0, dpToPx(8), 0);
         btnTransfer.setOnClickListener(v -> {
             parentDialog.dismiss();
             showSendDialog(contact.getPublicKey());
         });
-        actions.addView(btnTransfer);
-        row.addView(actions);
+
+        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dpToPx(40)
+        );
+        btnParams.setMargins(dpToPx(8), 0, 0, 0);
+        btnTransfer.setLayoutParams(btnParams);
+        btnTransfer.setTextSize(12);
+
+        row.addView(btnTransfer);
 
         return row;
+    }
+
+    private int getContactColor(String name) {
+        int[] colors = {
+                Color.parseColor("#EF5350"), Color.parseColor("#EC407A"), Color.parseColor("#AB47BC"),
+                Color.parseColor("#7E57C2"), Color.parseColor("#5C6BC0"), Color.parseColor("#42A5F5"),
+                Color.parseColor("#26A69A"), Color.parseColor("#66BB6A"), Color.parseColor("#FFA726"),
+                Color.parseColor("#FF7043"), Color.parseColor("#8D6E63"), Color.parseColor("#78909C")
+        };
+        return colors[Math.abs(name.hashCode()) % colors.length];
     }
 
     private void showAddFriendDialog(String prefilledAddress) {
