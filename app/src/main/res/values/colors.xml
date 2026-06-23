@@ -15,6 +15,7 @@
     <!-- Tertiary - Accent -->
     <color name="tertiary">#F1C40F</color>
     <color name="onTertiary">#000000</color>
+    <color name="immature_balance">#F59E0B</color>
 
     <!-- Backgrounds -->
     <color name="background">#FBFCFC</color>

@@ -19,6 +19,7 @@ import org.bitcoinj.core.Transaction;
 import org.bitcoinj.core.UTXO;
 import org.bitcoinj.core.UTXOProvider;
 import org.bitcoinj.core.UTXOProviderException;
+import org.bitcoinj.core.VerificationException;
 import org.bitcoinj.crypto.AesKey;
 import org.bitcoinj.crypto.ECKey;
 import org.bitcoinj.crypto.KeyCrypter;
@@ -33,6 +34,8 @@ import org.bitcoinj.wallet.Wallet;
 import android.os.Handler;
 import android.os.Looper;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.ArrayList;
@@ -51,6 +54,7 @@ public class WalletManager {
     private final ExecutorService walletExecutor = Executors.newCachedThreadPool();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Context context;
+    private final Object walletFileLock = new Object();
 
     private WalletManager(Context context) {
         this.context = context.getApplicationContext();
@@ -95,8 +99,8 @@ public class WalletManager {
     }
 
     public boolean hasWallet() {
-        File walletFile = new File(context.getFilesDir(), getWalletFileName());
-        return walletFile.exists();
+        File walletFile = getWalletFile();
+        return walletFile.exists() && walletFile.length() > 0;
     }
 
     public Wallet createWallet(String password) throws IOException {
@@ -132,21 +136,95 @@ public class WalletManager {
     }
 
     public void saveWallet() throws IOException {
-        if (wallet != null) {
-            File walletFile = new File(context.getFilesDir(), getWalletFileName());
+        if (wallet == null) return;
+
+        synchronized (walletFileLock) {
+            File walletFile = getWalletFile();
+            File backupFile = getWalletBackupFile();
+
+            if (walletFile.exists() && walletFile.length() > 0) {
+                copyFile(walletFile, backupFile);
+            }
+
             wallet.saveToFile(walletFile);
         }
     }
 
     public Wallet loadWallet() throws IOException {
-        File walletFile = new File(context.getFilesDir(), getWalletFileName());
-        if (!walletFile.exists()) return null;
+        synchronized (walletFileLock) {
+            File walletFile = getWalletFile();
+            if (!walletFile.exists() || walletFile.length() == 0) return null;
+
+            try {
+                wallet = Wallet.loadFromFile(walletFile);
+                return wallet;
+            } catch (Exception primaryError) {
+                Log.e(TAG, "Error loading wallet, trying local backup", primaryError);
+
+                Wallet backupWallet = tryLoadBackupWallet();
+                if (backupWallet != null) {
+                    wallet = backupWallet;
+                    restoreBackupAsPrimary();
+                    return wallet;
+                }
+
+                quarantineCorruptWallet(walletFile);
+                setHasWalletFlag(false);
+                wallet = null;
+                throw new IOException("Wallet local corrupta. Se requiere restaurar desde el backup.", primaryError);
+            }
+        }
+    }
+
+    private File getWalletFile() {
+        return new File(context.getFilesDir(), getWalletFileName());
+    }
+
+    private File getWalletBackupFile() {
+        return new File(context.getFilesDir(), getWalletFileName() + ".bak");
+    }
+
+    private Wallet tryLoadBackupWallet() {
+        File backupFile = getWalletBackupFile();
+        if (!backupFile.exists() || backupFile.length() == 0) return null;
+
         try {
-            wallet = Wallet.loadFromFile(walletFile);
-            return wallet;
-        } catch (Exception e) {
-            Log.e(TAG, "Error loading wallet", e);
-            throw new IOException("Failed to load wallet", e);
+            return Wallet.loadFromFile(backupFile);
+        } catch (Exception backupError) {
+            Log.e(TAG, "Backup local de wallet también está corrupto", backupError);
+            quarantineCorruptWallet(backupFile);
+            return null;
+        }
+    }
+
+    private void restoreBackupAsPrimary() throws IOException {
+        File backupFile = getWalletBackupFile();
+        File walletFile = getWalletFile();
+        copyFile(backupFile, walletFile);
+    }
+
+    private void quarantineCorruptWallet(File file) {
+        if (file == null || !file.exists()) return;
+
+        File corruptFile = new File(
+                context.getFilesDir(),
+                file.getName() + ".corrupt." + System.currentTimeMillis()
+        );
+        if (!file.renameTo(corruptFile)) {
+            Log.w(TAG, "No se pudo aislar wallet corrupta: " + file.getAbsolutePath());
+        }
+    }
+
+    private void copyFile(File source, File destination) throws IOException {
+        try (FileInputStream inputStream = new FileInputStream(source);
+             FileOutputStream outputStream = new FileOutputStream(destination, false)) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, read);
+            }
+            outputStream.flush();
+            outputStream.getFD().sync();
         }
     }
 
@@ -185,6 +263,17 @@ public class WalletManager {
     public Transaction createTransaction(String recipientAddress, long amountSats, String password) throws Exception {
         Address address = Address.fromString(Constants.NETWORK_PARAMETERS, recipientAddress);
         SendRequest request = SendRequest.to(address, Coin.valueOf(amountSats));
+        return createTransaction(request, password);
+    }
+
+    public Transaction createEmptyWalletTransaction(String recipientAddress, String password) throws Exception {
+        Address address = Address.fromString(Constants.NETWORK_PARAMETERS, recipientAddress);
+        SendRequest request = SendRequest.emptyWallet(address);
+        return createTransaction(request, password);
+    }
+
+    private Transaction createTransaction(SendRequest request, String password) throws Exception {
+        request.allowUnconfirmed();
         
         if (wallet.isEncrypted()) {
             if (password == null || password.isEmpty()) {
@@ -198,6 +287,54 @@ public class WalletManager {
         wallet.completeTx(request);
         saveWallet();
         return request.tx;
+    }
+
+    public void commitBroadcastTransaction(Transaction tx) throws IOException, VerificationException {
+        if (wallet == null || tx == null) return;
+        wallet.commitTx(tx);
+        saveWallet();
+    }
+
+    public long getEstimatedSpendableBalanceSats() {
+        if (wallet == null) return 0L;
+        return wallet.getBalance(Wallet.BalanceType.ESTIMATED_SPENDABLE).value;
+    }
+
+    public long getPendingOutgoingSats() {
+        if (wallet == null) return 0L;
+
+        long pendingOutgoing = 0L;
+        for (Transaction tx : wallet.getPendingTransactions()) {
+            try {
+                long sent = tx.getValueSentFromMe(wallet).value;
+                long received = tx.getValueSentToMe(wallet).value;
+                long netOutgoing = sent - received;
+                if (netOutgoing > 0) {
+                    pendingOutgoing += netOutgoing;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "No se pudo calcular tx pendiente: " + tx.getTxId(), e);
+            }
+        }
+        return pendingOutgoing;
+    }
+
+    public long getOutputAmountToAddress(Transaction tx, String recipientAddress) {
+        if (tx == null || recipientAddress == null || recipientAddress.isEmpty()) return 0L;
+
+        Address destination = Address.fromString(Constants.NETWORK_PARAMETERS, recipientAddress);
+        long amount = 0L;
+        for (org.bitcoinj.core.TransactionOutput output : tx.getOutputs()) {
+            try {
+                Address outputAddress = output.getScriptPubKey().getToAddress(Constants.NETWORK_PARAMETERS);
+                if (destination.equals(outputAddress)) {
+                    amount += output.getValue().value;
+                }
+            } catch (Exception ignored) {
+                // Non-address outputs are not destination payments for this flow.
+            }
+        }
+        return amount;
     }
 
     public void setRpcUtxos(List<WalletUtxo> unspents, int chainHeadHeight) {
@@ -431,9 +568,21 @@ public class WalletManager {
     }
 
     public void createTransactionAsync(String recipientAddress, long amountSats, String password, TransactionCallback callback) {
+        createTransactionAsync(recipientAddress, amountSats, false, password, callback);
+    }
+
+    public void createTransactionAsync(
+            String recipientAddress,
+            long amountSats,
+            boolean emptyWallet,
+            String password,
+            TransactionCallback callback
+    ) {
         walletExecutor.execute(() -> {
             try {
-                Transaction tx = createTransaction(recipientAddress, amountSats, password);
+                Transaction tx = emptyWallet
+                        ? createEmptyWalletTransaction(recipientAddress, password)
+                        : createTransaction(recipientAddress, amountSats, password);
                 mainHandler.post(() -> callback.onSuccess(tx));
             } catch (Exception e) {
                 mainHandler.post(() -> callback.onError(e));

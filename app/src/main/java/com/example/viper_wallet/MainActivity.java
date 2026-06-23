@@ -1,10 +1,14 @@
 package com.example.viper_wallet;
 
 import android.Manifest;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -13,12 +17,14 @@ import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.animation.LinearInterpolator;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.ScrollView;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -39,6 +45,10 @@ import com.example.viper_wallet.auth.LoginActivity;
 import com.example.viper_wallet.auth.ProfileActivity;
 import com.example.viper_wallet.databinding.ActivityMainBinding;
 import com.example.viper_wallet.models.TransactionRecord;
+import com.example.viper_wallet.network.api.ApiEnvelope;
+import com.example.viper_wallet.network.api.MiningApiClient;
+import com.example.viper_wallet.network.api.MiningSubmitResult;
+import com.example.viper_wallet.network.api.MiningWork;
 import com.example.viper_wallet.network.rpc.BitcoinRpcClient;
 import com.example.viper_wallet.network.rpc.BitcoinRpcResponse;
 import com.example.viper_wallet.network.rpc.BitcoinScanTxOutSetResult;
@@ -60,10 +70,18 @@ import org.bitcoinj.core.Transaction;
 import org.bitcoinj.wallet.Wallet;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -72,6 +90,10 @@ import retrofit2.Response;
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     private static final long BALANCE_REFRESH_INTERVAL_MS = 20_000L;
+    private static final long INITIAL_BLOCK_SUBSIDY_SATS = 5_000_000_000L;
+    private static final long FALLBACK_REGTEST_BLOCK_REWARD_SATS = 5_000_000_000L;
+    private static final int REGTEST_SUBSIDY_HALVING_INTERVAL = 150;
+    private static final int COINBASE_MATURITY_CONFIRMATIONS = 100;
     private static final int QR_CODE_SIZE_DP = 220;
 
     private ActivityMainBinding binding;
@@ -80,9 +102,31 @@ public class MainActivity extends AppCompatActivity {
     private EditText pendingScanAddressEditText;
     private DecoratedBarcodeView activeScannerView;
     private final Handler balanceHandler = new Handler(Looper.getMainLooper());
+    private final Handler miningHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService miningExecutor = Executors.newSingleThreadExecutor();
     private boolean isBalancePolling;
     private boolean isBalanceRequestInFlight;
+    private boolean isBalanceRefreshQueued;
     private boolean isServerWalletInitialized;
+    private boolean isMining;
+    private boolean isMiningRequestInFlight;
+    private volatile boolean shouldMineCurrentWork;
+    private String activeMiningAddress;
+    private String activeMiningJobId;
+    private int minedBlocksThisSession;
+    private long minedSatsThisSession;
+    private volatile long miningAttemptsThisJob;
+    private volatile double currentMiningHashRate;
+    private AlertDialog miningDialog;
+    private View miningCircleView;
+    private TextView miningCircleText;
+    private TextView miningStatusText;
+    private TextView miningStatsText;
+    private AnimatorSet miningPulseAnimator;
+    private long lastTotalBalanceSats;
+    private long lastSpendableBalanceSats;
+    private long lastImmatureMiningSats;
+    private int lastMiningMaturityBlocks;
 
     private final Runnable balanceRefreshRunnable = new Runnable() {
         @Override
@@ -90,6 +134,16 @@ public class MainActivity extends AppCompatActivity {
             refreshBalanceFromRpc();
             if (isBalancePolling) {
                 balanceHandler.postDelayed(this, BALANCE_REFRESH_INTERVAL_MS);
+            }
+        }
+    };
+
+    private final Runnable miningCountdownRunnable = new Runnable() {
+        @Override
+        public void run() {
+            updateMiningStats();
+            if (isMining) {
+                miningHandler.postDelayed(this, 1_000L);
             }
         }
     };
@@ -139,6 +193,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         stopBalancePolling();
+        stopMiningSession();
         pauseActiveScanner();
         super.onPause();
     }
@@ -165,12 +220,29 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void checkWalletState() {
-        if (walletManager.hasWallet()) {
-            showDashboard();
-        } else {
-            // No hay wallet local → intentar restaurar desde el backup en Firebase
-            tryRestoreWalletFromCloud();
+        try {
+            Wallet wallet = walletManager.loadWallet();
+            if (wallet != null) {
+                showDashboard();
+                return;
+            }
+        } catch (IOException e) {
+            handleWalletLoadFailure(e);
+            return;
         }
+
+        // No hay wallet local → intentar restaurar desde el backup en Firebase
+        tryRestoreWalletFromCloud();
+    }
+
+    private void handleWalletLoadFailure(Exception e) {
+        Log.e(TAG, "Wallet local ilegible", e);
+        Toast.makeText(
+                this,
+                "La wallet local está dañada. Vamos a restaurarla desde tu backup.",
+                Toast.LENGTH_LONG
+        ).show();
+        tryRestoreWalletFromCloud();
     }
 
     /**
@@ -289,7 +361,7 @@ public class MainActivity extends AppCompatActivity {
         binding.btnReload.setOnClickListener(v -> {
             String address = walletManager.getCurrentReceiveAddress();
             if (address != null) {
-                mineToAddress(address);
+                showMiningDialog(address);
             } else {
                 Toast.makeText(this, "No hay dirección disponible para recargar", Toast.LENGTH_SHORT).show();
             }
@@ -299,11 +371,14 @@ public class MainActivity extends AppCompatActivity {
         binding.btnServices.setOnClickListener(v -> {
             PopupMenu popupMenu = new PopupMenu(this, v);
             popupMenu.getMenu().add("Historial completo");
+            popupMenu.getMenu().add("Amigos");
             popupMenu.getMenu().add("Copiar Dirección");
-            popupMenu.getMenu().add("Minar (RegTest)");
             popupMenu.setOnMenuItemClickListener(item -> {
                 if ("Historial completo".equals(item.getTitle())) {
                     startActivity(new Intent(this, com.example.viper_wallet.auth.TransactionHistoryActivity.class));
+                    return true;
+                } else if ("Amigos".equals(item.getTitle())) {
+                    showFriendsDialog();
                     return true;
                 } else if ("Copiar Dirección".equals(item.getTitle())) {
                     String address = walletManager.getCurrentReceiveAddress();
@@ -316,14 +391,6 @@ public class MainActivity extends AppCompatActivity {
                         Toast.makeText(this, "No hay dirección disponible", Toast.LENGTH_SHORT).show();
                     }
                     return true;
-                } else if ("Minar (RegTest)".equals(item.getTitle())) {
-                    String address = walletManager.getCurrentReceiveAddress();
-                    if (address != null) {
-                        mineToAddress(address);
-                    } else {
-                        Toast.makeText(this, "No hay dirección disponible para minar", Toast.LENGTH_SHORT).show();
-                    }
-                    return true;
                 }
                 return false;
             });
@@ -332,6 +399,9 @@ public class MainActivity extends AppCompatActivity {
 
         binding.btnReceive.setOnClickListener(v -> showReceiveAddress());
         binding.btnSend.setOnClickListener(v -> showSendDialog());
+        binding.layoutBalanceSummary.setOnClickListener(v ->
+                startActivity(new Intent(this, BalanceDetailsActivity.class))
+        );
     }
 
     private void initializeServerWalletOnce() {
@@ -436,12 +506,6 @@ public class MainActivity extends AppCompatActivity {
         layout.addView(messageView);
 
         ImageView qrImageView = new ImageView(this);
-        try {
-            qrImageView.setImageBitmap(generateQrBitmap(address));
-        } catch (WriterException e) {
-            Log.w(TAG, "No se pudo generar el QR para la dirección " + address, e);
-            qrImageView.setVisibility(View.GONE);
-        }
         LinearLayout.LayoutParams qrLayoutParams = new LinearLayout.LayoutParams(
                 dpToPx(QR_CODE_SIZE_DP),
                 dpToPx(QR_CODE_SIZE_DP)
@@ -451,21 +515,26 @@ public class MainActivity extends AppCompatActivity {
         layout.addView(qrImageView, qrLayoutParams);
 
         TextView addressView = new TextView(this);
-        addressView.setText(address);
         addressView.setTextIsSelectable(true);
         addressView.setGravity(Gravity.CENTER_HORIZONTAL);
         layout.addView(addressView);
 
-        new MaterialAlertDialogBuilder(this)
+        updateReceiveAddressViews(address, qrImageView, addressView);
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.receive_address_title)
                 .setView(layout)
-                .setNeutralButton("Mine (RegTest)", (dialog, which) -> mineToAddress(address))
-                .setNegativeButton("Nueva dirección", (dialog, which) -> createFreshReceiveAddress())
-                .setPositiveButton(R.string.btn_done, (dialog, which) -> dialog.dismiss())
-                .show();
+                .setNeutralButton("Nueva dirección", null)
+                .setPositiveButton(R.string.btn_done, (dialogInterface, which) -> dialogInterface.dismiss())
+                .create();
+
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v ->
+                createFreshReceiveAddress(qrImageView, addressView)
+        ));
+        dialog.show();
     }
 
-    private void createFreshReceiveAddress() {
+    private void createFreshReceiveAddress(ImageView qrImageView, TextView addressView) {
         try {
             String address = walletManager.getFreshReceiveAddress();
             if (address == null) {
@@ -474,9 +543,20 @@ public class MainActivity extends AppCompatActivity {
             }
             binding.tvReceiveAddress.setText(address);
             registerAddressWithServer(address, true);
-            showReceiveAddress();
+            updateReceiveAddressViews(address, qrImageView, addressView);
         } catch (IOException e) {
             Toast.makeText(this, R.string.empty_receive_address, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void updateReceiveAddressViews(String address, ImageView qrImageView, TextView addressView) {
+        addressView.setText(address);
+        try {
+            qrImageView.setImageBitmap(generateQrBitmap(address));
+            qrImageView.setVisibility(View.VISIBLE);
+        } catch (WriterException e) {
+            Log.w(TAG, "No se pudo generar el QR para la dirección " + address, e);
+            qrImageView.setVisibility(View.GONE);
         }
     }
 
@@ -569,58 +649,453 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
-    private void mineToAddress(String address) {
-        Toast.makeText(this, "Mining blocks to " + address, Toast.LENGTH_SHORT).show();
-        BitcoinRpcClient.getInstance().generateToAddress(address, 101, new Callback<BitcoinRpcResponse<List<String>>>() {
+    private void showMiningDialog(String address) {
+        if (miningDialog != null && miningDialog.isShowing()) {
+            return;
+        }
+
+        activeMiningAddress = address;
+        registerAddressWithServer(address, false);
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setGravity(Gravity.CENTER_HORIZONTAL);
+        layout.setPadding(dpToPx(24), dpToPx(18), dpToPx(24), dpToPx(8));
+
+        miningCircleView = createMiningCircleView();
+        layout.addView(miningCircleView);
+
+        miningStatusText = new TextView(this);
+        miningStatusText.setGravity(Gravity.CENTER_HORIZONTAL);
+        miningStatusText.setTextColor(ContextCompat.getColor(this, R.color.onSurface));
+        miningStatusText.setTextSize(16);
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        statusParams.setMargins(0, dpToPx(18), 0, 0);
+        layout.addView(miningStatusText, statusParams);
+
+        miningStatsText = new TextView(this);
+        miningStatsText.setGravity(Gravity.CENTER_HORIZONTAL);
+        miningStatsText.setTextColor(Color.parseColor("#64748B"));
+        miningStatsText.setTextSize(13);
+        LinearLayout.LayoutParams statsParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        statsParams.setMargins(0, dpToPx(8), 0, 0);
+        layout.addView(miningStatsText, statsParams);
+
+        TextView addressView = new TextView(this);
+        addressView.setGravity(Gravity.CENTER_HORIZONTAL);
+        addressView.setTextColor(Color.parseColor("#64748B"));
+        addressView.setTextSize(12);
+        addressView.setText(address);
+        addressView.setSingleLine(false);
+        addressView.setTextIsSelectable(true);
+        LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        addressParams.setMargins(0, dpToPx(14), 0, 0);
+        layout.addView(addressView, addressParams);
+
+        miningDialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Recargar minando")
+                .setView(layout)
+                .setNegativeButton("Cerrar", null)
+                .create();
+
+        miningDialog.setOnShowListener(dialog -> startMiningSession(address));
+        miningDialog.setOnDismissListener(dialog -> {
+            stopMiningSession();
+            clearMiningDialogReferences();
+        });
+        miningDialog.show();
+    }
+
+    private View createMiningCircleView() {
+        FrameLayout circle = new FrameLayout(this);
+        int circleSize = dpToPx(236);
+        LinearLayout.LayoutParams circleParams = new LinearLayout.LayoutParams(circleSize, circleSize);
+        circleParams.gravity = Gravity.CENTER_HORIZONTAL;
+        circle.setLayoutParams(circleParams);
+        circle.setClickable(true);
+        circle.setFocusable(true);
+
+        GradientDrawable background = new GradientDrawable();
+        background.setShape(GradientDrawable.OVAL);
+        background.setColor(ContextCompat.getColor(this, R.color.primary));
+        background.setStroke(dpToPx(4), ContextCompat.getColor(this, R.color.tertiary));
+        circle.setBackground(background);
+
+        miningCircleText = new TextView(this);
+        miningCircleText.setGravity(Gravity.CENTER);
+        miningCircleText.setTextColor(ContextCompat.getColor(this, R.color.white));
+        miningCircleText.setTextSize(30);
+        miningCircleText.setTypeface(Typeface.DEFAULT_BOLD);
+        miningCircleText.setText("MINANDO");
+        circle.addView(miningCircleText, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+
+        circle.setOnClickListener(v -> toggleMiningSession());
+        return circle;
+    }
+
+    private void startMiningSession(String address) {
+        activeMiningAddress = address;
+        activeMiningJobId = null;
+        minedBlocksThisSession = 0;
+        minedSatsThisSession = 0L;
+        miningAttemptsThisJob = 0L;
+        currentMiningHashRate = 0;
+        isMining = true;
+        updateMiningStatus("Pidiendo trabajo de minería a la red...", true);
+        updateMiningStats();
+        startMiningPulseAnimation();
+        miningHandler.removeCallbacks(miningCountdownRunnable);
+        requestMiningWork();
+        miningHandler.post(miningCountdownRunnable);
+    }
+
+    private void toggleMiningSession() {
+        if (isMining) {
+            stopMiningSession();
+            updateMiningStatus("Minería pausada. Toca el círculo para continuar.", false);
+            updateMiningStats();
+        } else if (activeMiningAddress != null) {
+            isMining = true;
+            updateMiningStatus("Reanudando minería...", true);
+            startMiningPulseAnimation();
+            miningHandler.removeCallbacks(miningCountdownRunnable);
+            requestMiningWork();
+            miningHandler.post(miningCountdownRunnable);
+        }
+    }
+
+    private void stopMiningSession() {
+        isMining = false;
+        shouldMineCurrentWork = false;
+        activeMiningJobId = null;
+        miningHandler.removeCallbacks(miningCountdownRunnable);
+        stopMiningPulseAnimation();
+        if (miningCircleText != null) {
+            miningCircleText.setText("PAUSADO");
+        }
+    }
+
+    private void clearMiningDialogReferences() {
+        miningDialog = null;
+        miningCircleView = null;
+        miningCircleText = null;
+        miningStatusText = null;
+        miningStatsText = null;
+        miningPulseAnimator = null;
+    }
+
+    private void requestMiningWork() {
+        if (!isMining || isMiningRequestInFlight || activeMiningAddress == null) return;
+
+        isMiningRequestInFlight = true;
+        shouldMineCurrentWork = false;
+        miningAttemptsThisJob = 0L;
+        currentMiningHashRate = 0;
+        updateMiningStatus("Solicitando bloque candidato...", true);
+        updateMiningStats();
+
+        MiningApiClient.getInstance().getWork(activeMiningAddress, new Callback<ApiEnvelope<MiningWork>>() {
             @Override
-            public void onResponse(Call<BitcoinRpcResponse<List<String>>> call, Response<BitcoinRpcResponse<List<String>>> response) {
-                if (response.isSuccessful() && response.body() != null && response.body().getError() == null) {
-                    Toast.makeText(MainActivity.this, "Mined successfully!", Toast.LENGTH_SHORT).show();
-                    refreshBalanceFromRpc();
-                } else {
-                    Toast.makeText(MainActivity.this, "Mining failed", Toast.LENGTH_SHORT).show();
+            public void onResponse(Call<ApiEnvelope<MiningWork>> call, Response<ApiEnvelope<MiningWork>> response) {
+                isMiningRequestInFlight = false;
+                ApiEnvelope<MiningWork> body = response.body();
+                if (response.isSuccessful() && body != null && body.getData() != null) {
+                    startMiningWork(body.getData());
+                    return;
                 }
+
+                handleMiningWorkError("No se pudo obtener trabajo de minería");
             }
 
             @Override
-            public void onFailure(Call<BitcoinRpcResponse<List<String>>> call, Throwable t) {
-                Toast.makeText(MainActivity.this, "Network error: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+            public void onFailure(Call<ApiEnvelope<MiningWork>> call, Throwable t) {
+                isMiningRequestInFlight = false;
+                handleMiningWorkError("Error de red pidiendo trabajo: " + t.getMessage());
             }
         });
     }
 
+    private void startMiningWork(MiningWork work) {
+        if (!isMining || work.getJobId() == null || work.getPayloadPrefix() == null) return;
+
+        activeMiningJobId = work.getJobId();
+        shouldMineCurrentWork = true;
+        miningAttemptsThisJob = 0L;
+        currentMiningHashRate = 0;
+        updateMiningStatus("Minando bloque #" + work.getHeight() + " · objetivo " + work.getTargetPrefix(), true);
+        updateMiningStats();
+
+        miningExecutor.execute(() -> mineWorkInBackground(work));
+    }
+
+    private void mineWorkInBackground(MiningWork work) {
+        long nonce = Math.max(0L, System.nanoTime());
+        long attempts = 0L;
+        long startedAt = System.currentTimeMillis();
+        long lastUiUpdateAt = startedAt;
+
+        while (isMining && shouldMineCurrentWork && work.getJobId().equals(activeMiningJobId)) {
+            String nonceString = Long.toUnsignedString(nonce);
+            String hash = doubleSha256Hex(work.getPayloadPrefix() + nonceString);
+            attempts++;
+            miningAttemptsThisJob = attempts;
+
+            long now = System.currentTimeMillis();
+            if (now - lastUiUpdateAt >= 1_000L) {
+                currentMiningHashRate = attempts * 1_000.0 / Math.max(1L, now - startedAt);
+                lastUiUpdateAt = now;
+                runOnUiThread(this::updateMiningStats);
+            }
+
+            if (hash != null && hashMeetsTarget(hash, work.getTargetPrefix())) {
+                currentMiningHashRate = attempts * 1_000.0 / Math.max(1L, now - startedAt);
+                String finalNonce = nonceString;
+                String finalHash = hash;
+                long finalAttempts = attempts;
+                runOnUiThread(() -> submitMiningSolution(work, finalNonce, finalHash, finalAttempts, currentMiningHashRate));
+                return;
+            }
+
+            nonce++;
+        }
+    }
+
+    private String doubleSha256Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] first = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            byte[] second = digest.digest(first);
+            return toHex(second);
+        } catch (NoSuchAlgorithmException e) {
+            Log.e(TAG, "SHA-256 no disponible", e);
+            return null;
+        }
+    }
+
+    private boolean hashMeetsTarget(String hash, String targetPrefix) {
+        return hash != null
+                && targetPrefix != null
+                && hash.toLowerCase(Locale.US).startsWith(targetPrefix.toLowerCase(Locale.US));
+    }
+
+    private void submitMiningSolution(
+            MiningWork work,
+            String nonce,
+            String hash,
+            long attempts,
+            double hashRate
+    ) {
+        if (!isMining || activeMiningAddress == null || !work.getJobId().equals(activeMiningJobId)) return;
+
+        shouldMineCurrentWork = false;
+        isMiningRequestInFlight = true;
+        updateMiningStatus("Solución encontrada. Enviando prueba a la red...", true);
+        updateMiningStats();
+
+        MiningApiClient.getInstance().submitSolution(
+                work.getJobId(),
+                activeMiningAddress,
+                nonce,
+                attempts,
+                hashRate,
+                new Callback<ApiEnvelope<MiningSubmitResult>>() {
+                    @Override
+                    public void onResponse(
+                            Call<ApiEnvelope<MiningSubmitResult>> call,
+                            Response<ApiEnvelope<MiningSubmitResult>> response
+                    ) {
+                        isMiningRequestInFlight = false;
+                        ApiEnvelope<MiningSubmitResult> body = response.body();
+                        MiningSubmitResult result = body != null ? body.getData() : null;
+
+                        if (response.isSuccessful() && result != null && result.isAccepted()) {
+                            finishMinedBlock(work, result);
+                            return;
+                        }
+
+                        String message = result != null && result.getMessage() != null
+                                ? result.getMessage()
+                                : "Otro usuario ganó o la solución expiró";
+                        handleMiningWorkError(message);
+                    }
+
+                    @Override
+                    public void onFailure(Call<ApiEnvelope<MiningSubmitResult>> call, Throwable t) {
+                        isMiningRequestInFlight = false;
+                        handleMiningWorkError("Error enviando solución: " + t.getMessage());
+                    }
+                }
+        );
+    }
+
+    private void finishMinedBlock(MiningWork work, MiningSubmitResult result) {
+        long rewardSats = resolveMiningRewardSats(work, result);
+        String blockHash = result.getBlockHash() != null
+                ? result.getBlockHash()
+                : "job_" + result.getJobId();
+
+        minedBlocksThisSession++;
+        minedSatsThisSession += rewardSats;
+
+        String miningTxId = result.getCoinbaseTxId() != null && !result.getCoinbaseTxId().isEmpty()
+                ? result.getCoinbaseTxId()
+                : "mining_" + blockHash;
+        AuthManager.getInstance().saveTransaction(new TransactionRecord(
+                miningTxId,
+                "MINING",
+                rewardSats,
+                activeMiningAddress
+        ));
+
+        String shortHash = blockHash.length() > 12 ? blockHash.substring(0, 12) : blockHash;
+        updateMiningStatus("Ganaste el bloque " + shortHash + ". Recompensa: " + formatCoinAmount(rewardSats), isMining);
+        updateMiningStats();
+        refreshBalanceFromRpc();
+        loadDashboardTransactions();
+
+        if (isMining) {
+            requestMiningWork();
+        }
+    }
+
+    private long resolveMiningRewardSats(MiningWork work, MiningSubmitResult result) {
+        boolean apiReturnedCoinbase = result.getCoinbaseTxId() != null && !result.getCoinbaseTxId().isEmpty();
+        if (apiReturnedCoinbase && result.getRewardSats() > 0) {
+            return result.getRewardSats();
+        }
+
+        if (work != null && work.getHeight() > 0) {
+            return estimatedRegtestRewardSatsForHeight(work.getHeight());
+        }
+
+        return result.getRewardSats() > 0
+                ? result.getRewardSats()
+                : FALLBACK_REGTEST_BLOCK_REWARD_SATS;
+    }
+
+    private long estimatedRegtestRewardSatsForHeight(int height) {
+        int halvings = Math.max(0, height) / REGTEST_SUBSIDY_HALVING_INTERVAL;
+        if (halvings >= 63) {
+            return 0L;
+        }
+        return INITIAL_BLOCK_SUBSIDY_SATS >> halvings;
+    }
+
+    private void handleMiningWorkError(String message) {
+        Log.w(TAG, message);
+        updateMiningStatus(message, isMining);
+        updateMiningStats();
+
+        if (isMining) {
+            miningHandler.postDelayed(this::requestMiningWork, 1_500L);
+        }
+    }
+
+    private void updateMiningStatus(String message, boolean miningNow) {
+        if (miningCircleText != null) {
+            miningCircleText.setText(miningNow ? "MINANDO" : "PAUSADO");
+        }
+        if (miningStatusText != null) {
+            miningStatusText.setText(message);
+        }
+    }
+
+    private void updateMiningStats() {
+        if (miningStatsText == null) return;
+
+        StringBuilder stats = new StringBuilder();
+        stats.append("Bloques ganados: ")
+                .append(minedBlocksThisSession)
+                .append(" · Total: ")
+                .append(formatCoinAmount(minedSatsThisSession));
+
+        if (activeMiningJobId != null) {
+            stats.append("\nIntentos: ")
+                    .append(miningAttemptsThisJob)
+                    .append(" · ")
+                    .append(String.format(Locale.US, "%.0f H/s", currentMiningHashRate));
+        }
+
+        if (isMiningRequestInFlight) {
+            stats.append("\nEsperando respuesta de la red...");
+        }
+
+        miningStatsText.setText(stats.toString());
+    }
+
+    private void startMiningPulseAnimation() {
+        if (miningCircleView == null) return;
+        if (miningPulseAnimator != null && miningPulseAnimator.isStarted()) return;
+
+        ObjectAnimator scaleX = ObjectAnimator.ofFloat(miningCircleView, View.SCALE_X, 1f, 1.08f, 1f);
+        ObjectAnimator scaleY = ObjectAnimator.ofFloat(miningCircleView, View.SCALE_Y, 1f, 1.08f, 1f);
+        scaleX.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        scaleY.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        scaleX.setDuration(1_150L);
+        scaleY.setDuration(1_150L);
+        scaleX.setInterpolator(new LinearInterpolator());
+        scaleY.setInterpolator(new LinearInterpolator());
+
+        miningPulseAnimator = new AnimatorSet();
+        miningPulseAnimator.playTogether(scaleX, scaleY);
+        miningPulseAnimator.start();
+    }
+
+    private void stopMiningPulseAnimation() {
+        if (miningPulseAnimator != null) {
+            miningPulseAnimator.cancel();
+            miningPulseAnimator = null;
+        }
+        if (miningCircleView != null) {
+            miningCircleView.setScaleX(1f);
+            miningCircleView.setScaleY(1f);
+        }
+    }
+
     private void showSendDialog() {
+        showSendDialog(null);
+    }
+
+    private void showSendDialog(String prefilledAddress) {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dpToPx(24), dpToPx(12), dpToPx(24), 0);
 
-        LinearLayout addressRow = new LinearLayout(this);
-        addressRow.setOrientation(LinearLayout.HORIZONTAL);
-        addressRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView availableBalanceView = new TextView(this);
+        availableBalanceView.setText(sendDialogBalanceText());
+        availableBalanceView.setTextColor(Color.parseColor("#64748B"));
+        availableBalanceView.setTextSize(14);
+        layout.addView(availableBalanceView);
 
         final EditText etAddress = new EditText(this);
-        etAddress.setHint("Recipient Address");
+        etAddress.setHint("Dirección destino");
         etAddress.setSingleLine(true);
+        if (prefilledAddress != null && !prefilledAddress.isEmpty()) {
+            etAddress.setText(prefilledAddress);
+            etAddress.setSelection(prefilledAddress.length());
+        }
         LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(
-                0,
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1f
         );
-        addressRow.addView(etAddress, addressParams);
-
-        MaterialButton btnScanQr = new MaterialButton(this);
-        btnScanQr.setText("Escanear QR");
-        btnScanQr.setIconResource(android.R.drawable.ic_menu_camera);
-        LinearLayout.LayoutParams scanParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        scanParams.setMargins(dpToPx(12), 0, 0, 0);
-        addressRow.addView(btnScanQr, scanParams);
-        layout.addView(addressRow);
+        addressParams.setMargins(0, dpToPx(8), 0, 0);
+        layout.addView(etAddress, addressParams);
 
         FrameLayout scannerFrame = new FrameLayout(this);
-        scannerFrame.setVisibility(View.GONE);
+        scannerFrame.setVisibility(prefilledAddress == null || prefilledAddress.isEmpty() ? View.VISIBLE : View.GONE);
         LinearLayout.LayoutParams scannerParams = new LinearLayout.LayoutParams(
                 dpToPx(260),
                 dpToPx(260)
@@ -636,30 +1111,36 @@ public class MainActivity extends AppCompatActivity {
         ));
         layout.addView(scannerFrame, scannerParams);
 
-        btnScanQr.setOnClickListener(v -> startEmbeddedQrScanner(etAddress, scannerView, scannerFrame));
+        MaterialButton btnSaveFriend = new MaterialButton(this);
+        btnSaveFriend.setText("Guardar como amigo");
+        btnSaveFriend.setIconResource(android.R.drawable.ic_menu_save);
+        layout.addView(btnSaveFriend);
 
         final EditText etAmount = new EditText(this);
-        etAmount.setHint("Amount in BTC");
+        etAmount.setHint("Monto en UESCoin");
         etAmount.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         layout.addView(etAmount);
 
+        MaterialButton btnUseMax = new MaterialButton(this);
+        btnUseMax.setText("Usar máximo");
+        btnUseMax.setIconResource(android.R.drawable.ic_menu_upload);
+        layout.addView(btnUseMax);
+
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle("Send UESCoin (RegTest)")
+                .setTitle("Enviar UESCoin")
                 .setView(layout)
-                .setPositiveButton("Send", (dialogInterface, which) -> {
-                    String address = etAddress.getText().toString();
-                    String amountStr = etAmount.getText().toString();
-                    if (!address.isEmpty() && !amountStr.isEmpty()) {
-                        try {
-                            long satoshis = (long) (Double.parseDouble(amountStr) * 100_000_000);
-                            sendTransaction(address, satoshis);
-                        } catch (Exception e) {
-                            Toast.makeText(this, "Invalid amount", Toast.LENGTH_SHORT).show();
-                        }
-                    }
-                })
-                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Enviar", null)
+                .setNegativeButton("Cancelar", null)
                 .create();
+        btnSaveFriend.setOnClickListener(v -> {
+            String address = etAddress.getText().toString().trim();
+            if (address.isEmpty()) {
+                etAddress.setError("Escanea o escribe una dirección");
+                return;
+            }
+            showSaveFriendDialog(address);
+        });
+        btnUseMax.setOnClickListener(v -> etAmount.setText(satsToPlainCoin(lastSpendableBalanceSats)));
         dialog.setOnDismissListener(dialogInterface -> {
             if (pendingScanAddressEditText == etAddress) {
                 pendingScanAddressEditText = null;
@@ -670,6 +1151,254 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String address = etAddress.getText().toString().trim();
+            String amountStr = etAmount.getText().toString().trim();
+            if (address.isEmpty()) {
+                etAddress.setError("Escanea o escribe una dirección");
+                return;
+            }
+            if (amountStr.isEmpty()) {
+                etAmount.setError("Escribe el monto");
+                return;
+            }
+            try {
+                long satoshis = parseCoinAmountToSats(amountStr);
+                if (satoshis <= 0) {
+                    etAmount.setError("El monto debe ser mayor que 0");
+                    return;
+                }
+                dialog.dismiss();
+                sendTransaction(address, satoshis);
+            } catch (Exception e) {
+                etAmount.setError("Monto inválido");
+            }
+        });
+        if (prefilledAddress == null || prefilledAddress.isEmpty()) {
+            scannerFrame.post(() -> startEmbeddedQrScanner(etAddress, scannerView, scannerFrame));
+        }
+    }
+
+    private void showFriendsDialog() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dpToPx(20), dpToPx(12), dpToPx(20), 0);
+
+        MaterialButton btnAddFriend = new MaterialButton(this);
+        btnAddFriend.setText("Agregar amigo con QR");
+        btnAddFriend.setIconResource(android.R.drawable.ic_input_add);
+        content.addView(btnAddFriend);
+
+        MaterialButton btnSendByQr = new MaterialButton(this);
+        btnSendByQr.setText("Enviar escaneando QR");
+        btnSendByQr.setIconResource(android.R.drawable.ic_menu_camera);
+        content.addView(btnSendByQr);
+
+        TextView loadingView = new TextView(this);
+        loadingView.setText("Cargando amigos...");
+        loadingView.setGravity(Gravity.CENTER_HORIZONTAL);
+        loadingView.setPadding(0, dpToPx(16), 0, dpToPx(16));
+        content.addView(loadingView);
+
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.addView(content);
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Amigos")
+                .setView(scrollView)
+                .setNegativeButton("Cerrar", null)
+                .create();
+
+        btnAddFriend.setOnClickListener(v -> {
+            dialog.dismiss();
+            showAddFriendDialog(null);
+        });
+        btnSendByQr.setOnClickListener(v -> {
+            dialog.dismiss();
+            showSendDialog();
+        });
+
+        AuthManager.getInstance().getContacts(new AuthManager.ContactsCallback() {
+            @Override
+            public void onContactsLoaded(List<AuthManager.Contact> contacts) {
+                content.removeView(loadingView);
+                if (contacts.isEmpty()) {
+                    TextView emptyView = new TextView(MainActivity.this);
+                    emptyView.setText("Aún no tienes amigos guardados.");
+                    emptyView.setGravity(Gravity.CENTER_HORIZONTAL);
+                    emptyView.setPadding(0, dpToPx(16), 0, dpToPx(16));
+                    content.addView(emptyView);
+                    return;
+                }
+
+                for (AuthManager.Contact contact : contacts) {
+                    content.addView(createFriendRow(contact, dialog));
+                }
+            }
+
+            @Override
+            public void onError(String message) {
+                loadingView.setText("Error cargando amigos: " + message);
+            }
+        });
+
+        dialog.show();
+    }
+
+    private View createFriendRow(AuthManager.Contact contact, AlertDialog parentDialog) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dpToPx(14), 0, dpToPx(14));
+
+        TextView nameView = new TextView(this);
+        nameView.setText(contact.getName() != null && !contact.getName().isEmpty() ? contact.getName() : "Sin nombre");
+        nameView.setTextSize(16);
+        nameView.setTypeface(Typeface.DEFAULT_BOLD);
+        row.addView(nameView);
+
+        TextView addressView = new TextView(this);
+        addressView.setText(contact.getPublicKey());
+        addressView.setTextSize(12);
+        addressView.setTextColor(Color.parseColor("#64748B"));
+        addressView.setTextIsSelectable(true);
+        row.addView(addressView);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.END);
+        actions.setPadding(0, dpToPx(8), 0, 0);
+
+        MaterialButton btnTransfer = new MaterialButton(this);
+        btnTransfer.setText("Transferir");
+        btnTransfer.setOnClickListener(v -> {
+            parentDialog.dismiss();
+            showSendDialog(contact.getPublicKey());
+        });
+        actions.addView(btnTransfer);
+        row.addView(actions);
+
+        return row;
+    }
+
+    private void showAddFriendDialog(String prefilledAddress) {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dpToPx(24), dpToPx(12), dpToPx(24), 0);
+
+        EditText etName = new EditText(this);
+        etName.setHint("Nombre del amigo");
+        etName.setSingleLine(true);
+        layout.addView(etName);
+
+        EditText etAddress = new EditText(this);
+        etAddress.setHint("Dirección del amigo");
+        etAddress.setSingleLine(true);
+        if (prefilledAddress != null && !prefilledAddress.isEmpty()) {
+            etAddress.setText(prefilledAddress);
+            etAddress.setSelection(prefilledAddress.length());
+        }
+        layout.addView(etAddress);
+
+        FrameLayout scannerFrame = new FrameLayout(this);
+        scannerFrame.setVisibility(prefilledAddress == null || prefilledAddress.isEmpty() ? View.VISIBLE : View.GONE);
+        LinearLayout.LayoutParams scannerParams = new LinearLayout.LayoutParams(
+                dpToPx(260),
+                dpToPx(260)
+        );
+        scannerParams.gravity = Gravity.CENTER_HORIZONTAL;
+        scannerParams.setMargins(0, dpToPx(12), 0, dpToPx(12));
+
+        DecoratedBarcodeView scannerView = new DecoratedBarcodeView(this);
+        scannerView.setStatusText("");
+        scannerFrame.addView(scannerView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        layout.addView(scannerFrame, scannerParams);
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Agregar amigo")
+                .setView(layout)
+                .setPositiveButton("Guardar", null)
+                .setNegativeButton("Cancelar", null)
+                .create();
+
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String name = etName.getText().toString().trim();
+                String address = etAddress.getText().toString().trim();
+                if (name.isEmpty()) {
+                    etName.setError("Escribe un nombre");
+                    return;
+                }
+                if (address.isEmpty()) {
+                    etAddress.setError("Escanea o escribe la dirección");
+                    return;
+                }
+                saveFriend(name, address, () -> {
+                    dialog.dismiss();
+                    showFriendsDialog();
+                });
+            });
+
+            if (prefilledAddress == null || prefilledAddress.isEmpty()) {
+                scannerFrame.post(() -> startEmbeddedQrScanner(etAddress, scannerView, scannerFrame));
+            }
+        });
+
+        dialog.setOnDismissListener(dialogInterface -> {
+            if (pendingScanAddressEditText == etAddress) {
+                pendingScanAddressEditText = null;
+            }
+            pauseActiveScanner();
+            if (activeScannerView == scannerView) {
+                activeScannerView = null;
+            }
+        });
+
+        dialog.show();
+    }
+
+    private void showSaveFriendDialog(String address) {
+        EditText etName = new EditText(this);
+        etName.setHint("Nombre del amigo");
+        etName.setSingleLine(true);
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Guardar amigo")
+                .setMessage(address)
+                .setView(etName)
+                .setPositiveButton("Guardar", null)
+                .setNegativeButton("Cancelar", null)
+                .create();
+
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String name = etName.getText().toString().trim();
+            if (name.isEmpty()) {
+                etName.setError("Escribe un nombre");
+                return;
+            }
+            saveFriend(name, address, dialog::dismiss);
+        }));
+
+        dialog.show();
+    }
+
+    private void saveFriend(String name, String address, Runnable onSaved) {
+        AuthManager.getInstance().saveContact(
+                contactKeyForAddress(address),
+                name,
+                address,
+                () -> {
+                    Toast.makeText(this, "Amigo guardado", Toast.LENGTH_SHORT).show();
+                    if (onSaved != null) onSaved.run();
+                },
+                message -> Toast.makeText(this, "No se pudo guardar amigo: " + message, Toast.LENGTH_LONG).show()
+        );
+    }
+
+    private String contactKeyForAddress(String address) {
+        return address.replaceAll("[.#$\\[\\]/]", "_");
     }
 
     private void startEmbeddedQrScanner(
@@ -798,18 +1527,20 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 BitcoinScanTxOutSetResult result = body.getResult();
-                List<WalletManager.WalletUtxo> walletUtxos = toWalletUtxos(result, walletAddresses);
-                if (walletUtxos.isEmpty()) {
+                List<WalletManager.WalletUtxo> walletUtxos = toSpendableWalletUtxos(result, walletAddresses, chainHeight);
+                walletManager.setRpcUtxos(walletUtxos, chainHeight);
+                long estimatedSpendableSats = walletManager.getEstimatedSpendableBalanceSats();
+                if (walletUtxos.isEmpty() && estimatedSpendableSats <= 0) {
                     Toast.makeText(
                             MainActivity.this,
-                            "El nodo ve 0 UTXOs gastables para esta wallet. Revisa que recibiste/minaste a esta dirección.",
+                            "El nodo ve 0 UTXOs gastables para esta wallet. Si acabas de minar, la recompensa debe madurar primero.",
                             Toast.LENGTH_LONG
                     ).show();
                     return;
                 }
 
-                walletManager.setRpcUtxos(walletUtxos, chainHeight);
-                createSignAndBroadcastTransaction(address, amountSats);
+                boolean emptyWallet = shouldEmptyWallet(amountSats, estimatedSpendableSats);
+                createSignAndBroadcastTransaction(address, amountSats, emptyWallet);
             }
 
             @Override
@@ -819,7 +1550,11 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void createSignAndBroadcastTransaction(String address, long amountSats) {
+    private boolean shouldEmptyWallet(long requestedSats, long estimatedSpendableSats) {
+        return estimatedSpendableSats > 0 && requestedSats >= estimatedSpendableSats;
+    }
+
+    private void createSignAndBroadcastTransaction(String address, long amountSats, boolean emptyWallet) {
         if (walletManager.isEncrypted()) {
             FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
             String savedPassword = (user != null) ? walletManager.getSavedWalletPassword(user.getUid()) : null;
@@ -828,7 +1563,7 @@ public class MainActivity extends AppCompatActivity {
                 com.example.viper_wallet.auth.BiometricHelper.showPrompt(this, new com.example.viper_wallet.auth.BiometricHelper.BiometricCallback() {
                     @Override
                     public void onAuthenticated() {
-                        performTransaction(address, amountSats, savedPassword);
+                        performTransaction(address, amountSats, emptyWallet, savedPassword);
                     }
 
                     @Override
@@ -838,16 +1573,16 @@ public class MainActivity extends AppCompatActivity {
                 });
             } else {
                 requestWalletPassword(password -> {
-                    performTransaction(address, amountSats, password);
+                    performTransaction(address, amountSats, emptyWallet, password);
                 });
             }
         } else {
-            performTransaction(address, amountSats, null);
+            performTransaction(address, amountSats, emptyWallet, null);
         }
     }
 
-    private void performTransaction(String address, long amountSats, String password) {
-        walletManager.createTransactionAsync(address, amountSats, password, new WalletManager.TransactionCallback() {
+    private void performTransaction(String address, long amountSats, boolean emptyWallet, String password) {
+        walletManager.createTransactionAsync(address, amountSats, emptyWallet, password, new WalletManager.TransactionCallback() {
             @Override
             public void onSuccess(Transaction tx) {
                 FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
@@ -862,10 +1597,23 @@ public class MainActivity extends AppCompatActivity {
                             BitcoinRpcResponse<String> body = response.body();
                             if (response.isSuccessful() && body != null && body.getError() == null) {
                                 String txId = body.getResult();
-                                Toast.makeText(MainActivity.this, "Transacción enviada: " + txId, Toast.LENGTH_LONG).show();
+                                try {
+                                    walletManager.commitBroadcastTransaction(tx);
+                                } catch (Exception e) {
+                                    Log.w(TAG, "No se pudo guardar tx pendiente localmente", e);
+                                }
+
+                                long actualSentSats = walletManager.getOutputAmountToAddress(tx, address);
+                                if (actualSentSats <= 0) {
+                                    actualSentSats = amountSats;
+                                }
+                                String message = emptyWallet
+                                        ? "Transacción enviada. Comisión descontada del máximo."
+                                        : "Transacción enviada: " + txId;
+                                Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
 
                                 AuthManager.getInstance().saveTransaction(new TransactionRecord(
-                                    txId, "SEND", amountSats, address
+                                    txId, "SEND", actualSentSats, address
                                 ));
 
                                 updateUI();
@@ -924,14 +1672,19 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    private List<WalletManager.WalletUtxo> toWalletUtxos(
+    private List<WalletManager.WalletUtxo> toSpendableWalletUtxos(
             BitcoinScanTxOutSetResult result,
-            List<String> walletAddresses
+            List<String> walletAddresses,
+            int chainHeight
     ) {
         List<WalletManager.WalletUtxo> walletUtxos = new ArrayList<>();
         if (result.getUnspents() == null) return walletUtxos;
 
         for (BitcoinScanTxOutSetResult.Unspent unspent : result.getUnspents()) {
+            if (isImmatureCoinbase(unspent, chainHeight)) {
+                continue;
+            }
+
             String scriptPubKey = unspent.getScriptPubKey();
             if (scriptPubKey == null || scriptPubKey.isEmpty()) {
                 Log.w(TAG, "UTXO sin scriptPubKey, se omite: " + unspent.getTxid() + ":" + unspent.getVout());
@@ -939,6 +1692,11 @@ public class MainActivity extends AppCompatActivity {
             }
 
             String ownerAddress = findOwnerAddress(unspent, walletAddresses);
+            if (ownerAddress == null) {
+                Log.w(TAG, "UTXO sin dirección dueña reconocida, se omite: " + unspent.getTxid() + ":" + unspent.getVout());
+                continue;
+            }
+
             walletUtxos.add(new WalletManager.WalletUtxo(
                     unspent.getTxid(),
                     unspent.getVout(),
@@ -1008,7 +1766,7 @@ public class MainActivity extends AppCompatActivity {
                 loadDashboardTransactions();
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            handleWalletLoadFailure(e);
         }
     }
 
@@ -1025,7 +1783,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshBalanceFromRpc() {
-        if (isBalanceRequestInFlight || walletManager.getWallet() == null) return;
+        if (walletManager.getWallet() == null) return;
+        if (isBalanceRequestInFlight) {
+            isBalanceRefreshQueued = true;
+            return;
+        }
 
         List<String> addresses = walletManager.getIssuedReceiveAddresses();
         if (addresses.isEmpty()) return;
@@ -1034,8 +1796,6 @@ public class MainActivity extends AppCompatActivity {
         BitcoinRpcClient.getInstance().scanTxOutSetForAddresses(addresses, new Callback<BitcoinRpcResponse<BitcoinScanTxOutSetResult>>() {
             @Override
             public void onResponse(Call<BitcoinRpcResponse<BitcoinScanTxOutSetResult>> call, Response<BitcoinRpcResponse<BitcoinScanTxOutSetResult>> response) {
-                isBalanceRequestInFlight = false;
-
                 BitcoinRpcResponse<BitcoinScanTxOutSetResult> body = response.body();
                 if (!response.isSuccessful() || body == null || body.getError() != null || body.getResult() == null) {
                     String message = "respuesta RPC inválida";
@@ -1048,27 +1808,216 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                     Log.w(TAG, "No se pudo actualizar balance: " + message);
+                    finishBalanceRefresh();
                     return;
                 }
 
                 BitcoinScanTxOutSetResult result = body.getResult();
                 if (result.isSuccess()) {
-                    displayBalance(result.getTotalSats());
+                    int chainHeight = result.getHeight();
+                    if (chainHeight > 0) {
+                        walletManager.setRpcUtxos(toSpendableWalletUtxos(result, addresses, chainHeight), chainHeight);
+                    }
+                    BalanceSummary summary = summarizeBalance(result);
+                    displayBalance(summary);
+                    saveIncomingTransactionsFromUtxos(result, addresses);
                 }
+                finishBalanceRefresh();
             }
 
             @Override
             public void onFailure(Call<BitcoinRpcResponse<BitcoinScanTxOutSetResult>> call, Throwable t) {
-                isBalanceRequestInFlight = false;
                 Log.w(TAG, "Error RPC actualizando balance", t);
+                finishBalanceRefresh();
             }
         });
     }
 
     private void displayBalance(long sats) {
-        String balance = String.format(Locale.US, "%.8f %s", sats / 100_000_000.0, Constants.COIN_TICKER);
-        binding.tvBalance.setText(balance);
-        binding.tvBalanceSats.setText(sats + " sats");
+        displayBalance(new BalanceSummary(sats, sats, 0L, 0));
+    }
+
+    private void displayBalance(BalanceSummary summary) {
+        long pendingOutgoingSats = walletManager.getPendingOutgoingSats();
+        long estimatedSpendableSats = walletManager.getEstimatedSpendableBalanceSats();
+        long displayedSpendableSats = pendingOutgoingSats > 0
+                ? Math.max(0L, estimatedSpendableSats)
+                : summary.spendableSats;
+
+        lastTotalBalanceSats = summary.totalSats;
+        lastSpendableBalanceSats = displayedSpendableSats;
+        lastImmatureMiningSats = summary.immatureMiningSats;
+        lastMiningMaturityBlocks = summary.nextMaturityBlocks;
+
+        binding.tvBalance.setText(formatCoinAmount(displayedSpendableSats));
+        if (summary.immatureMiningSats > 0) {
+            binding.tvImmatureBalance.setVisibility(View.VISIBLE);
+            String immatureText = "Inmaduro: " + formatCoinAmount(summary.immatureMiningSats);
+            if (summary.nextMaturityBlocks > 0) {
+                immatureText += " · madura en " + summary.nextMaturityBlocks + " bloques";
+            }
+            binding.tvImmatureBalance.setText(immatureText);
+        } else {
+            binding.tvImmatureBalance.setVisibility(View.GONE);
+        }
+
+        if (pendingOutgoingSats > 0) {
+            StringBuilder balanceDetails = new StringBuilder("En transferencia: ")
+                    .append(pendingOutgoingSats)
+                    .append(" sats");
+            binding.tvBalanceSats.setText(balanceDetails.toString());
+            binding.tvBalanceSats.setVisibility(View.VISIBLE);
+        } else {
+            binding.tvBalanceSats.setText("");
+            binding.tvBalanceSats.setVisibility(View.GONE);
+        }
+    }
+
+    private void finishBalanceRefresh() {
+        isBalanceRequestInFlight = false;
+        if (isBalanceRefreshQueued) {
+            isBalanceRefreshQueued = false;
+            balanceHandler.post(this::refreshBalanceFromRpc);
+        }
+    }
+
+    private BalanceSummary summarizeBalance(BitcoinScanTxOutSetResult result) {
+        long totalSats = 0L;
+        long immatureMiningSats = 0L;
+        int nextMaturityBlocks = 0;
+
+        List<BitcoinScanTxOutSetResult.Unspent> unspents = result.getUnspents();
+        if (unspents != null) {
+            for (BitcoinScanTxOutSetResult.Unspent unspent : unspents) {
+                if (unspent == null) continue;
+                long amountSats = unspent.getAmountSats();
+                totalSats += amountSats;
+
+                if (isImmatureCoinbase(unspent, result.getHeight())) {
+                    immatureMiningSats += amountSats;
+                    int remaining = remainingMaturityBlocks(unspent, result.getHeight());
+                    if (remaining > 0 && (nextMaturityBlocks == 0 || remaining < nextMaturityBlocks)) {
+                        nextMaturityBlocks = remaining;
+                    }
+                }
+            }
+        } else {
+            totalSats = result.getTotalSats();
+        }
+
+        long spendableSats = Math.max(0L, totalSats - immatureMiningSats);
+        return new BalanceSummary(totalSats, spendableSats, immatureMiningSats, nextMaturityBlocks);
+    }
+
+    private boolean isImmatureCoinbase(BitcoinScanTxOutSetResult.Unspent unspent, int chainHeight) {
+        return unspent != null
+                && unspent.isCoinbase()
+                && chainHeight > 0
+                && confirmationsForUnspent(unspent, chainHeight) < COINBASE_MATURITY_CONFIRMATIONS;
+    }
+
+    private int remainingMaturityBlocks(BitcoinScanTxOutSetResult.Unspent unspent, int chainHeight) {
+        int confirmations = confirmationsForUnspent(unspent, chainHeight);
+        return Math.max(0, COINBASE_MATURITY_CONFIRMATIONS - confirmations);
+    }
+
+    private int confirmationsForUnspent(BitcoinScanTxOutSetResult.Unspent unspent, int chainHeight) {
+        if (unspent.getHeight() <= 0 || chainHeight <= 0) return 0;
+        return Math.max(0, chainHeight - unspent.getHeight() + 1);
+    }
+
+    private String sendDialogBalanceText() {
+        String text = "Disponible: " + formatCoinAmount(lastSpendableBalanceSats);
+        long pendingOutgoingSats = walletManager.getPendingOutgoingSats();
+        if (pendingOutgoingSats > 0) {
+            text += "\nEn transferencia: " + formatCoinAmount(pendingOutgoingSats);
+        }
+        if (lastImmatureMiningSats > 0) {
+            text += "\nMinería pendiente: " + formatCoinAmount(lastImmatureMiningSats);
+            if (lastMiningMaturityBlocks > 0) {
+                text += " · madura en " + lastMiningMaturityBlocks + " bloques";
+            }
+        }
+        return text;
+    }
+
+    private static class BalanceSummary {
+        private final long totalSats;
+        private final long spendableSats;
+        private final long immatureMiningSats;
+        private final int nextMaturityBlocks;
+
+        private BalanceSummary(
+                long totalSats,
+                long spendableSats,
+                long immatureMiningSats,
+                int nextMaturityBlocks
+        ) {
+            this.totalSats = totalSats;
+            this.spendableSats = spendableSats;
+            this.immatureMiningSats = immatureMiningSats;
+            this.nextMaturityBlocks = nextMaturityBlocks;
+        }
+    }
+
+    private void saveIncomingTransactionsFromUtxos(
+            BitcoinScanTxOutSetResult result,
+            List<String> walletAddresses
+    ) {
+        if (result.getUnspents() == null || walletAddresses == null || walletAddresses.isEmpty()) return;
+
+        Map<String, IncomingTransactionSummary> incomingByTxId = new LinkedHashMap<>();
+        for (BitcoinScanTxOutSetResult.Unspent unspent : result.getUnspents()) {
+            if (unspent == null || unspent.isCoinbase() || unspent.getTxid() == null) continue;
+
+            String ownerAddress = findOwnerAddress(unspent, walletAddresses);
+            if (ownerAddress == null) continue;
+
+            IncomingTransactionSummary summary = incomingByTxId.get(unspent.getTxid());
+            if (summary == null) {
+                summary = new IncomingTransactionSummary(ownerAddress);
+                incomingByTxId.put(unspent.getTxid(), summary);
+            }
+            summary.amountSats += unspent.getAmountSats();
+        }
+
+        if (incomingByTxId.isEmpty()) return;
+
+        AuthManager authManager = AuthManager.getInstance();
+        for (Map.Entry<String, IncomingTransactionSummary> entry : incomingByTxId.entrySet()) {
+            IncomingTransactionSummary summary = entry.getValue();
+            authManager.saveTransactionIfAbsent(
+                    new TransactionRecord(entry.getKey(), "RECEIVE", summary.amountSats, summary.address),
+                    this::loadDashboardTransactions
+            );
+        }
+    }
+
+    private static class IncomingTransactionSummary {
+        private final String address;
+        private long amountSats;
+
+        private IncomingTransactionSummary(String address) {
+            this.address = address;
+        }
+    }
+
+    private String formatCoinAmount(long sats) {
+        return String.format(Locale.US, "%.8f %s", sats / 100_000_000.0, Constants.COIN_TICKER);
+    }
+
+    private String satsToPlainCoin(long sats) {
+        return BigDecimal.valueOf(sats)
+                .movePointLeft(8)
+                .setScale(8, RoundingMode.DOWN)
+                .toPlainString();
+    }
+
+    private long parseCoinAmountToSats(String amount) {
+        return new BigDecimal(amount)
+                .movePointRight(8)
+                .setScale(0, RoundingMode.UNNECESSARY)
+                .longValueExact();
     }
 
     private BitcoinRpcResponse<?> parseErrorResponse(Response<?> response) {
@@ -1098,7 +2047,10 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     binding.tvEmptyStateDashboard.setVisibility(View.GONE);
                     binding.rvTransactionsDashboard.setVisibility(View.VISIBLE);
-                    TransactionAdapter adapter = new TransactionAdapter(transactions);
+                    TransactionAdapter adapter = new TransactionAdapter(
+                            transactions,
+                            transaction -> TransactionDetailsDialog.show(MainActivity.this, transaction)
+                    );
                     binding.rvTransactionsDashboard.setAdapter(adapter);
                 }
             }

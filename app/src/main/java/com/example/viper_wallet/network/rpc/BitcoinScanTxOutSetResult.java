@@ -6,6 +6,8 @@ import java.util.List;
 public class BitcoinScanTxOutSetResult {
     private boolean success;
     private int txouts;
+    private int height;
+    private String bestblock;
     private double total_amount;
     private List<Unspent> unspents;
 
@@ -15,6 +17,14 @@ public class BitcoinScanTxOutSetResult {
 
     public int getTxouts() {
         return txouts;
+    }
+
+    public int getHeight() {
+        return height;
+    }
+
+    public String getBestBlock() {
+        return bestblock;
     }
 
     public double getTotalAmount() {

@@ -35,6 +35,8 @@
     <string name="prompt_wallet_password">Ingresa el password de tu wallet</string>
     <string name="wallet_restore_success">Wallet restaurada exitosamente</string>
 
+    <!-- Google Auth (Fallback if google-services.json is missing) -->
+    <string name="default_web_client_id">YOUR_WEB_CLIENT_ID.apps.googleusercontent.com</string>
     <!-- Register Step Flow -->
     <string name="reg_step1_title">Crea tu cuenta</string>
     <string name="reg_step1_subtitle">Estas credenciales te servirán para iniciar sesión</string>

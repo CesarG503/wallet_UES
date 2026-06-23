@@ -14,6 +14,7 @@ public class Constants {
     public static final int NODE_P2P_PORT = 18444;
     public static final int NODE_RPC_PORT = 18443;
     public static final String RPC_BASE_URL = "http://217.216.51.62:18443/";
+    public static final String API_BASE_URL = "https://uexp-api.mixgyt.com/api/";
     public static final String SERVER_WALLET_PREFIX = "viper_android_";
 
     public static final String WALLET_FILENAME = "viper_wallet_regtest.protobuf";

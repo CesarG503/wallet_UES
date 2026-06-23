@@ -8,6 +8,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.RecyclerView;
 import com.example.viper_wallet.R;
+import com.example.viper_wallet.TransactionDetailsDialog;
 import com.example.viper_wallet.adapters.TransactionAdapter;
 import com.example.viper_wallet.models.TransactionRecord;
 import com.google.android.material.appbar.MaterialToolbar;
@@ -50,7 +51,10 @@ public class TransactionHistoryActivity extends AppCompatActivity {
                 } else {
                     tvEmptyState.setVisibility(View.GONE);
                     rvTransactions.setVisibility(View.VISIBLE);
-                    TransactionAdapter adapter = new TransactionAdapter(transactions);
+                    TransactionAdapter adapter = new TransactionAdapter(
+                            transactions,
+                            transaction -> TransactionDetailsDialog.show(TransactionHistoryActivity.this, transaction)
+                    );
                     rvTransactions.setAdapter(adapter);
                 }
             }
