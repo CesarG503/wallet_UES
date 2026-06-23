@@ -149,18 +149,17 @@ public class RegisterStep4AesFragment extends Fragment {
         if (nickname == null) nickname = "";
         final String finalNickname = nickname;
 
-        // 1. Crear cuenta Firebase con la contraseña de CUENTA
-        authManager.createAccount(email, password, new AuthManager.AuthCallback() {
-            @Override
-            public void onSuccess(com.google.firebase.auth.FirebaseUser user) {
-                // 2. Guardar semilla cifrada en Realtime Database con la contraseña de WALLET
+        // Si la cuenta fue vinculada con Google, ya tenemos sesión activa
+        Boolean isGoogleLinked = viewModel.isGoogleLinked.getValue();
+        if (Boolean.TRUE.equals(isGoogleLinked)) {
+            com.google.firebase.auth.FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+            if (user != null) {
                 authManager.saveNewWalletForExistingUser(
                         user.getUid(),
-                        aesPassword,     // ← contraseña de WALLET para cifrado AES
+                        aesPassword,
                         mnemonic,
                         finalNickname,
                         () -> {
-                            // 3. Sign out y volver al Login
                             if (!isAdded()) return;
                             setLoading(false);
                             walletManager.saveWalletPasswordSecurely(user.getUid(), aesPassword);
@@ -176,19 +175,56 @@ public class RegisterStep4AesFragment extends Fragment {
                             if (!isAdded()) return;
                             setLoading(false);
                             showError("Error guardando backup: " + errorMsg);
-                            // Limpiar cuenta parcial para evitar estado inconsistente
-                            user.delete();
+                            // En flujo vinculado no borramos la cuenta de Google, solo cerramos sesión
+                            FirebaseAuth.getInstance().signOut();
                         }
                 );
-            }
-
-            @Override
-            public void onError(String message) {
-                if (!isAdded()) return;
+            } else {
+                showError("No se encontró una sesión activa de Google.");
                 setLoading(false);
-                showError("Error al crear cuenta: " + message);
             }
-        });
+        } else {
+            // 1. Crear cuenta Firebase con la contraseña de CUENTA
+            authManager.createAccount(email, password, new AuthManager.AuthCallback() {
+                @Override
+                public void onSuccess(com.google.firebase.auth.FirebaseUser user) {
+                    // 2. Guardar semilla cifrada en Realtime Database con la contraseña de WALLET
+                    authManager.saveNewWalletForExistingUser(
+                            user.getUid(),
+                            aesPassword,     // ← contraseña de WALLET para cifrado AES
+                            mnemonic,
+                            finalNickname,
+                            () -> {
+                                // 3. Sign out y volver al Login
+                                if (!isAdded()) return;
+                                setLoading(false);
+                                walletManager.saveWalletPasswordSecurely(user.getUid(), aesPassword);
+                                FirebaseAuth.getInstance().signOut();
+                                Toast.makeText(requireContext(),
+                                        "¡Registro completo! Ahora inicia sesión.",
+                                        Toast.LENGTH_LONG).show();
+                                Intent intent = new Intent(requireContext(), LoginActivity.class);
+                                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                                startActivity(intent);
+                            },
+                            errorMsg -> {
+                                if (!isAdded()) return;
+                                setLoading(false);
+                                showError("Error guardando backup: " + errorMsg);
+                                // Limpiar cuenta parcial para evitar estado inconsistente
+                                user.delete();
+                            }
+                    );
+                }
+
+                @Override
+                public void onError(String message) {
+                    if (!isAdded()) return;
+                    setLoading(false);
+                    showError("Error al crear cuenta: " + message);
+                }
+            });
+        }
     }
 
     // ──── Helpers ────────────────────────────────────────────────────────────

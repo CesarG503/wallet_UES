@@ -106,6 +106,10 @@ public class AuthManager {
         });
     }
 
+    public void fetchSignInMethods(String email, com.google.android.gms.tasks.OnCompleteListener<com.google.firebase.auth.SignInMethodQueryResult> listener) {
+        auth.fetchSignInMethodsForEmail(email).addOnCompleteListener(listener);
+    }
+
     public void signInWithGoogle(String idToken, AuthCallback callback) {
         AuthCredential credential = GoogleAuthProvider.getCredential(idToken, null);
         auth.signInWithCredential(credential).addOnCompleteListener(task -> {

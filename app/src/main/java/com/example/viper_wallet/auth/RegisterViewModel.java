@@ -30,6 +30,9 @@ public class RegisterViewModel extends ViewModel {
     // UID Firebase — se establece al crear la cuenta en el paso 4
     public final MutableLiveData<String> uid = new MutableLiveData<>(null);
 
+    // Si la cuenta proviene de Google vinculada
+    public final MutableLiveData<Boolean> isGoogleLinked = new MutableLiveData<>(false);
+
     // Paso actual (1-4)
     public final MutableLiveData<Integer> currentStep = new MutableLiveData<>(1);
 }
