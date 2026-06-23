@@ -62,7 +62,7 @@
                 android:layout_marginBottom="24dp"
                 android:text="@string/reg_step3_warning"
                 android:textSize="14sp"
-                android:textColor="#E53E3E"
+                android:textColor="?attr/colorError"
                 android:lineSpacingMultiplier="1.3" />
 
             <!-- Grid 3 columnas x 4 filas de palabras -->

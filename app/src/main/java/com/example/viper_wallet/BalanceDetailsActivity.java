@@ -12,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.material.color.MaterialColors;
 import com.example.viper_wallet.databinding.ActivityBalanceDetailsBinding;
 import com.example.viper_wallet.databinding.ItemMiningRewardBinding;
 import com.example.viper_wallet.network.rpc.BitcoinRpcClient;
@@ -335,7 +336,7 @@ public class BalanceDetailsActivity extends AppCompatActivity {
                     itemBinding.tvRewardMaturity.setText("Faltan " + reward.blocksRemaining + " bloques para madurar");
                 } else {
                     itemBinding.tvRewardStatus.setText("Disponible");
-                    itemBinding.tvRewardStatus.setTextColor(ContextCompat.getColor(BalanceDetailsActivity.this, R.color.primary));
+                    itemBinding.tvRewardStatus.setTextColor(MaterialColors.getColor(BalanceDetailsActivity.this, androidx.appcompat.R.attr.colorPrimary, 0xFF1B8A5A));
                     itemBinding.tvRewardMaturity.setText("Lista para usar");
                 }
 

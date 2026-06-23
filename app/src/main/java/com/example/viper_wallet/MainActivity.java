@@ -9,6 +9,7 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -57,9 +58,11 @@ import com.example.viper_wallet.network.rpc.BitcoinScanTxOutSetResult;
 import com.example.viper_wallet.walletcore.Constants;
 import com.example.viper_wallet.walletcore.WalletManager;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.MultiFormatWriter;
 import com.google.zxing.WriterException;
@@ -68,6 +71,7 @@ import com.journeyapps.barcodescanner.BarcodeCallback;
 import com.journeyapps.barcodescanner.BarcodeResult;
 import com.journeyapps.barcodescanner.DecoratedBarcodeView;
 
+import org.bitcoinj.base.Address;
 import org.bitcoinj.core.Transaction;
 import org.bitcoinj.wallet.Wallet;
 
@@ -101,6 +105,7 @@ public class MainActivity extends AppCompatActivity {
     private ActivityMainBinding binding;
     private WalletManager walletManager;
     private ActivityResultLauncher<String> cameraPermissionLauncher;
+    private ActivityResultLauncher<String> notificationPermissionLauncher;
     private EditText pendingScanAddressEditText;
     private DecoratedBarcodeView activeScannerView;
     private final Handler balanceHandler = new Handler(Looper.getMainLooper());
@@ -169,6 +174,7 @@ public class MainActivity extends AppCompatActivity {
         walletManager = WalletManager.getInstance(this);
 
         setupCameraPermissionLauncher();
+        setupNotificationPermissionLauncher();
         setupWindowInsets();
         setupListeners();
 
@@ -216,6 +222,17 @@ public class MainActivity extends AppCompatActivity {
                         resumeActiveScannerIfPermitted();
                     } else {
                         Toast.makeText(this, "Permiso de cámara denegado", Toast.LENGTH_SHORT).show();
+                    }
+                }
+        );
+    }
+
+    private void setupNotificationPermissionLauncher() {
+        notificationPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                isGranted -> {
+                    if (isGranted) {
+                        registerPushNotifications();
                     }
                 }
         );
@@ -350,6 +367,48 @@ public class MainActivity extends AppCompatActivity {
         walletManager.startSyncAsync();
         initializeServerWalletOnce();
         startBalancePolling();
+        checkNotificationPermission();
+    }
+
+    private void checkNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                registerPushNotifications();
+            } else {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+            }
+        } else {
+            registerPushNotifications();
+        }
+    }
+
+    private void registerPushNotifications() {
+        String address = walletManager.getCurrentReceiveAddress();
+        if (address == null) return;
+
+        FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
+            if (!task.isSuccessful()) {
+                Log.w(TAG, "Fetching FCM registration token failed", task.getException());
+                return;
+            }
+
+            String token = task.getResult();
+            Log.d(TAG, "FCM Token: " + token);
+
+            MiningApiClient.getInstance().registerDevice(token, address, new Callback<Map<String, Object>>() {
+                @Override
+                public void onResponse(Call<Map<String, Object>> call, Response<Map<String, Object>> response) {
+                    if (response.isSuccessful()) {
+                        Log.i(TAG, "Push notifications registered for address: " + address);
+                    }
+                }
+
+                @Override
+                public void onFailure(Call<Map<String, Object>> call, Throwable t) {
+                    Log.w(TAG, "Failed to register push notifications", t);
+                }
+            });
+        });
     }
 
     private void setupListeners() {
@@ -519,6 +578,7 @@ public class MainActivity extends AppCompatActivity {
             binding.tvReceiveAddress.setText(address);
             registerAddressWithServer(address, true);
             updateReceiveAddressViews(address, qrImageView, addressView);
+            registerPushNotifications();
         } catch (IOException e) {
             Toast.makeText(this, R.string.empty_receive_address, Toast.LENGTH_SHORT).show();
         }
@@ -690,6 +750,12 @@ public class MainActivity extends AppCompatActivity {
         miningDialog.show();
     }
 
+    private int getThemeColor(int attr) {
+        TypedValue tv = new TypedValue();
+        getTheme().resolveAttribute(attr, tv, true);
+        return tv.data;
+    }
+
     private View createMiningCircleView() {
         FrameLayout circle = new FrameLayout(this);
         int circleSize = dpToPx(236);
@@ -701,13 +767,13 @@ public class MainActivity extends AppCompatActivity {
 
         GradientDrawable background = new GradientDrawable();
         background.setShape(GradientDrawable.OVAL);
-        background.setColor(ContextCompat.getColor(this, R.color.primary));
-        background.setStroke(dpToPx(4), ContextCompat.getColor(this, R.color.tertiary));
+        background.setColor(getThemeColor(androidx.appcompat.R.attr.colorPrimary));
+        background.setStroke(dpToPx(4), getThemeColor(com.google.android.material.R.attr.colorTertiary));
         circle.setBackground(background);
 
         miningCircleText = new TextView(this);
         miningCircleText.setGravity(Gravity.CENTER);
-        miningCircleText.setTextColor(ContextCompat.getColor(this, R.color.white));
+        miningCircleText.setTextColor(getThemeColor(com.google.android.material.R.attr.colorOnPrimary));
         miningCircleText.setTextSize(30);
         miningCircleText.setTypeface(Typeface.DEFAULT_BOLD);
         miningCircleText.setText("MINANDO");
@@ -1133,6 +1199,10 @@ public class MainActivity extends AppCompatActivity {
                 etAddress.setError("Escanea o escribe una dirección");
                 return;
             }
+            if (!isValidAddress(address)) {
+                etAddress.setError("Dirección inválida para " + Constants.NETWORK_NAME);
+                return;
+            }
             if (amountStr.isEmpty()) {
                 etAmount.setError("Escribe el monto");
                 return;
@@ -1383,13 +1453,13 @@ public class MainActivity extends AppCompatActivity {
         nameView.setText(name);
         nameView.setTextSize(16);
         nameView.setTypeface(Typeface.DEFAULT_BOLD);
-        nameView.setTextColor(ContextCompat.getColor(this, R.color.onSurface));
+        nameView.setTextColor(getThemeColor(com.google.android.material.R.attr.colorOnSurface));
         infoLayout.addView(nameView);
 
         TextView addressView = new TextView(this);
         addressView.setText(contact.getPublicKey());
         addressView.setTextSize(12);
-        addressView.setTextColor(Color.parseColor("#64748B"));
+        addressView.setTextColor(getThemeColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
         addressView.setSingleLine(true);
         addressView.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         infoLayout.addView(addressView);
@@ -1481,6 +1551,10 @@ public class MainActivity extends AppCompatActivity {
                 }
                 if (address.isEmpty()) {
                     etAddress.setError("Escanea o escribe la dirección");
+                    return;
+                }
+                if (!isValidAddress(address)) {
+                    etAddress.setError("Dirección inválida");
                     return;
                 }
                 saveFriend(name, address, () -> {
@@ -1604,6 +1678,16 @@ public class MainActivity extends AppCompatActivity {
                     : addressWithQuery;
         }
         return value;
+    }
+
+    private boolean isValidAddress(String addressStr) {
+        if (addressStr == null || addressStr.isEmpty()) return false;
+        try {
+            Address.fromString(Constants.NETWORK_PARAMETERS, addressStr);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void sendTransaction(String address, long amountSats) {

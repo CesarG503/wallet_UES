@@ -28,7 +28,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                android:textColor="@color/onSurface"
+                android:textColor="?attr/colorOnSurface"
                 android:textStyle="bold"
                 tools:text="0.00610351 UESCoin" />
 
@@ -48,7 +48,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-            android:textColor="#64748B"
+            android:textColor="?attr/colorOnSurfaceVariant"
             tools:text="Faltan 85 bloques para madurar" />
 
         <TextView
@@ -57,7 +57,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-            android:textColor="#64748B"
+            android:textColor="?attr/colorOnSurfaceVariant"
             tools:text="Bloque 1992 · 15 confirmaciones · tx abcd1234" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

@@ -59,4 +59,11 @@ public class MiningApiClient {
         body.put("hash_rate", hashRate);
         service.submitSolution(body).enqueue(callback);
     }
+
+    public void registerDevice(String token, String address, Callback<Map<String, Object>> callback) {
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("token", token);
+        body.put("address", address);
+        service.registerDevice(body).enqueue(callback);
+    }
 }
