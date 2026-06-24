@@ -58,7 +58,7 @@
                         android:layout_width="48dp"
                         android:layout_height="48dp"
                         app:icon="@drawable/ic_menu"
-                        app:iconTint="?attr/colorOnSurface"
+                        app:iconTint="@color/white"
                         app:iconSize="24dp"
                         android:contentDescription="@string/content_desc_profile"
                         android:background="?attr/selectableItemBackgroundBorderless" />
@@ -79,7 +79,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/label_balance"
-                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textColor="#94A3B8"
                         android:textAppearance="@style/TextAppearance.Material3.LabelLarge" />
 
                     <TextView
@@ -88,7 +88,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="@string/default_balance"
-                        android:textColor="?attr/colorOnSurface"
+                        android:textColor="@color/white"
                         android:textAppearance="@style/TextAppearance.Material3.HeadlineLarge"
                         android:textStyle="bold" />
 
@@ -98,7 +98,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
                         android:text=""
-                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textColor="#64748B"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                         android:visibility="gone" />
 
