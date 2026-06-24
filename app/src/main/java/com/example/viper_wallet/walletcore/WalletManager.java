@@ -446,13 +446,13 @@ public class WalletManager {
     }
 
     public static class WalletUtxo {
-        private final String txid;
-        private final long vout;
-        private final long amountSats;
-        private final int height;
-        private final boolean coinbase;
-        private final String scriptPubKey;
-        private final String address;
+        public final String txid;
+        public final long vout;
+        public final long amountSats;
+        public final int height;
+        public final boolean coinbase;
+        public final String scriptPubKey;
+        public final String address;
 
         public WalletUtxo(
                 String txid,

@@ -2032,9 +2032,14 @@ public class MainActivity extends AppCompatActivity {
     private void displayBalance(BalanceSummary summary) {
         long pendingOutgoingSats = walletManager.getPendingOutgoingSats();
         long estimatedSpendableSats = walletManager.getEstimatedSpendableBalanceSats();
-        long displayedSpendableSats = pendingOutgoingSats > 0
-                ? Math.max(0L, estimatedSpendableSats)
-                : summary.spendableSats;
+
+        // El balance disponible es el máximo entre:
+        // 1. Lo que el nodo ve (on-chain) menos lo que tenemos pendiente de salir (mempool local)
+        // 2. Lo que bitcoinj estima (que puede incluir transacciones entrantes no confirmadas)
+        long displayedSpendableSats = Math.max(
+                Math.max(0L, summary.spendableSats - pendingOutgoingSats),
+                estimatedSpendableSats
+        );
 
         lastTotalBalanceSats = summary.totalSats;
         lastSpendableBalanceSats = displayedSpendableSats;

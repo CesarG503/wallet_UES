@@ -183,11 +183,16 @@ public class BalanceDetailsActivity extends AppCompatActivity {
         });
 
         long spendableSats = Math.max(0L, totalSats - immatureSats);
-        long estimatedSpendableSats = walletManager.getEstimatedSpendableBalanceSats();
-        long availableSats = estimatedSpendableSats > 0 || spendableSats == 0
-                ? estimatedSpendableSats
-                : spendableSats;
         long pendingOutgoingSats = walletManager.getPendingOutgoingSats();
+        long estimatedSpendableSats = walletManager.getEstimatedSpendableBalanceSats();
+
+        // El balance disponible es el máximo entre:
+        // 1. Lo que el nodo ve (on-chain) menos lo que tenemos pendiente de salir (mempool local)
+        // 2. Lo que bitcoinj estima (que puede incluir transacciones entrantes no confirmadas)
+        long availableSats = Math.max(
+                Math.max(0L, spendableSats - pendingOutgoingSats),
+                estimatedSpendableSats
+        );
 
         binding.tvAvailableBalance.setText(formatCoinAmount(availableSats));
         binding.tvImmatureBalance.setText("Inmaduro: " + formatCoinAmount(immatureSats));

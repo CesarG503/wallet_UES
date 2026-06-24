@@ -12,6 +12,8 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
 import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -57,9 +59,11 @@ public class TransferActivity extends AppCompatActivity {
     private ActivityTransferBinding binding;
     private WalletManager walletManager;
     private ContactAdapter contactAdapter;
+    private List<AuthManager.Contact> currentContacts = new ArrayList<>();
     private String selectedAddress;
     private String selectedName;
     private long spendableBalanceSats = 0;
+    private EditText targetScanEditText;
 
     private final ActivityResultLauncher<ScanOptions> barcodeLauncher = registerForActivityResult(new ScanContract(),
             result -> {
@@ -67,7 +71,11 @@ public class TransferActivity extends AppCompatActivity {
                     Toast.makeText(this, "Escaneo cancelado", Toast.LENGTH_LONG).show();
                 } else {
                     String address = extractBitcoinAddress(result.getContents());
-                    binding.etAddress.setText(address);
+                    if (targetScanEditText != null) {
+                        targetScanEditText.setText(address);
+                    } else {
+                        binding.etAddress.setText(address);
+                    }
                 }
             });
 
@@ -128,6 +136,7 @@ public class TransferActivity extends AppCompatActivity {
 
     private void setupListeners() {
         binding.tilAddress.setEndIconOnClickListener(v -> {
+            targetScanEditText = binding.etAddress;
             ScanOptions options = new ScanOptions();
             options.setDesiredBarcodeFormats(ScanOptions.QR_CODE);
             options.setPrompt("Escanea una dirección de UESCoin");
@@ -171,15 +180,36 @@ public class TransferActivity extends AppCompatActivity {
     private void showAddFriendDialog() {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(48, 24, 48, 0);
+        layout.setPadding(64, 32, 64, 0);
 
-        EditText etName = new EditText(this);
-        etName.setHint("Nombre");
-        layout.addView(etName);
+        TextInputLayout tilName = new TextInputLayout(this);
+        tilName.setHint("Nombre");
+        tilName.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        TextInputEditText etName = new TextInputEditText(this);
+        tilName.addView(etName);
+        layout.addView(tilName);
 
-        EditText etAddress = new EditText(this);
-        etAddress.setHint("Dirección");
-        layout.addView(etAddress);
+        View spacing = new View(this);
+        spacing.setLayoutParams(new LinearLayout.LayoutParams(1, 16));
+        layout.addView(spacing);
+
+        TextInputLayout tilAddress = new TextInputLayout(this);
+        tilAddress.setHint("Dirección");
+        tilAddress.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        tilAddress.setEndIconMode(TextInputLayout.END_ICON_CUSTOM);
+        tilAddress.setEndIconDrawable(R.drawable.ic_qrcode_mdi);
+        
+        TextInputEditText etAddress = new TextInputEditText(this);
+        tilAddress.addView(etAddress);
+        layout.addView(tilAddress);
+
+        tilAddress.setEndIconOnClickListener(v -> {
+            targetScanEditText = etAddress;
+            ScanOptions options = new ScanOptions();
+            options.setDesiredBarcodeFormats(ScanOptions.QR_CODE);
+            options.setPrompt("Escanea la dirección de tu amigo");
+            barcodeLauncher.launch(options);
+        });
 
         new MaterialAlertDialogBuilder(this)
                 .setTitle("Agregar Amigo")
@@ -202,6 +232,7 @@ public class TransferActivity extends AppCompatActivity {
         AuthManager.getInstance().getContacts(new AuthManager.ContactsCallback() {
             @Override
             public void onContactsLoaded(List<AuthManager.Contact> contacts) {
+                currentContacts = contacts;
                 if (contacts.isEmpty()) {
                     binding.rvContacts.setVisibility(View.GONE);
                     binding.tvEmptyContacts.setVisibility(View.VISIBLE);
@@ -315,9 +346,18 @@ public class TransferActivity extends AppCompatActivity {
             public void onResponse(Call<BitcoinRpcResponse<BitcoinScanTxOutSetResult>> call, Response<BitcoinRpcResponse<BitcoinScanTxOutSetResult>> response) {
                 if (response.isSuccessful() && response.body() != null && response.body().getResult() != null) {
                     BitcoinScanTxOutSetResult result = response.body().getResult();
-                    walletManager.setRpcUtxos(toSpendableWalletUtxos(result, walletAddresses, height), height);
-                    
-                    boolean emptyWallet = amountSats >= walletManager.getEstimatedSpendableBalanceSats();
+                    List<WalletManager.WalletUtxo> utxos = toSpendableWalletUtxos(result, walletAddresses, height);
+                    walletManager.setRpcUtxos(utxos, height);
+
+                    long spendableSats = 0;
+                    for (WalletManager.WalletUtxo u : utxos) {
+                        spendableSats += u.amountSats;
+                    }
+                    long pendingOutgoing = walletManager.getPendingOutgoingSats();
+                    long estimatedSpendable = walletManager.getEstimatedSpendableBalanceSats();
+                    long realAvailable = Math.max(Math.max(0L, spendableSats - pendingOutgoing), estimatedSpendable);
+
+                    boolean emptyWallet = amountSats >= realAvailable;
                     authenticateAndExecute(address, amountSats, emptyWallet);
                 }
             }
@@ -373,7 +413,7 @@ public class TransferActivity extends AppCompatActivity {
                                 
                                 AuthManager.getInstance().saveTransaction(new TransactionRecord(txId, "SEND", amountSats, address));
                                 Toast.makeText(TransferActivity.this, "Transacción enviada!", Toast.LENGTH_LONG).show();
-                                finish();
+                                checkAndPromptAddFriend(address);
                             } else {
                                 Toast.makeText(TransferActivity.this, "Error RPC", Toast.LENGTH_SHORT).show();
                             }
@@ -404,6 +444,64 @@ public class TransferActivity extends AppCompatActivity {
                 .setView(etWalletPass)
                 .setPositiveButton("Confirmar", (dialog, which) -> callback.onPasswordEntered(etWalletPass.getText().toString()))
                 .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private void checkAndPromptAddFriend(String address) {
+        boolean exists = false;
+        for (AuthManager.Contact contact : currentContacts) {
+            if (contact.getPublicKey().equalsIgnoreCase(address)) {
+                exists = true;
+                break;
+            }
+        }
+
+        if (!exists) {
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle("¿Añadir a amigos?")
+                    .setMessage("Esta dirección no está en tu lista de amigos. ¿Quieres guardarla?")
+                    .setPositiveButton("Sí, añadir", (dialog, which) -> {
+                        showAddFriendDialogWithAddress(address);
+                    })
+                    .setNegativeButton("No", (dialog, which) -> finish())
+                    .setCancelable(false)
+                    .show();
+        } else {
+            finish();
+        }
+    }
+
+    private void showAddFriendDialogWithAddress(String address) {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(64, 32, 64, 0);
+
+        TextInputLayout tilName = new TextInputLayout(this);
+        tilName.setHint("Nombre");
+        tilName.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        TextInputEditText etName = new TextInputEditText(this);
+        tilName.addView(etName);
+        layout.addView(tilName);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("Agregar Amigo")
+                .setView(layout)
+                .setPositiveButton("Guardar", (dialog, which) -> {
+                    String name = etName.getText().toString().trim();
+                    if (!name.isEmpty()) {
+                        AuthManager.getInstance().saveContact(address.replaceAll("[.#$\\[\\]/]", "_"), name, address, () -> {
+                            Toast.makeText(this, "Amigo guardado", Toast.LENGTH_SHORT).show();
+                            finish();
+                        }, msg -> {
+                            Toast.makeText(this, "Error: " + msg, Toast.LENGTH_SHORT).show();
+                            finish();
+                        });
+                    } else {
+                        finish();
+                    }
+                })
+                .setNegativeButton("Cancelar", (dialog, which) -> finish())
+                .setCancelable(false)
                 .show();
     }
 
