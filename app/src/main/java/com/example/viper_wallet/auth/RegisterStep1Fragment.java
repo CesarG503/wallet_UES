@@ -9,6 +9,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.TextView;
+import android.util.TypedValue;
+import com.google.android.material.color.MaterialColors;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -149,15 +151,10 @@ public class RegisterStep1Fragment extends Fragment {
     }
 
     private void setRequirement(TextView icon, boolean met) {
-        if (met) {
-            icon.setText("●");
-            icon.setTextColor(requireContext().getColor(R.color.primary));
-        } else {
-            icon.setText("○");
-            icon.setTextColor(icon.getContext().getTheme()
-                    .obtainStyledAttributes(new int[]{com.google.android.material.R.attr.colorOnSurfaceVariant})
-                    .getColor(0, 0xFF64748B));
-        }
+        int colorAttr = met ? androidx.appcompat.R.attr.colorPrimary : com.google.android.material.R.attr.colorOnSurfaceVariant;
+        int color = MaterialColors.getColor(icon, colorAttr);
+        icon.setTextColor(color);
+        icon.setText(met ? "●" : "○");
     }
 
     private boolean isPasswordValid(String pass) {

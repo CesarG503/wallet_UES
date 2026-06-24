@@ -2,9 +2,10 @@
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mainDetails"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background"
+    android:background="?android:attr/windowBackground"
     tools:context=".BalanceDetailsActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -17,8 +18,10 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:navigationIcon="@android:drawable/ic_menu_revert"
-            app:title="Balance" />
+            app:navigationIcon="@drawable/ic_arrow_back"
+            app:navigationIconTint="?attr/colorOnSurface"
+            app:title="Detalles de Balance"
+            app:titleTextColor="?attr/colorOnSurface" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <LinearLayout
@@ -36,7 +39,7 @@
             android:layout_height="wrap_content"
             android:text="Disponible para usar"
             android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
-            android:textColor="#64748B" />
+            android:textColor="?attr/colorOnSurfaceVariant" />
 
         <TextView
             android:id="@+id/tvAvailableBalance"
@@ -44,7 +47,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:textAppearance="@style/TextAppearance.Material3.HeadlineMedium"
-            android:textColor="@color/onBackground"
+            android:textColor="?attr/colorOnBackground"
             android:textStyle="bold"
             tools:text="0.00000000 UESCoin" />
 
@@ -64,7 +67,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-            android:textColor="#64748B"
+            android:textColor="?attr/colorOnSurfaceVariant"
             tools:text="Total detectado: 0.00610351 UESCoin" />
 
         <TextView
@@ -74,7 +77,7 @@
             android:layout_marginTop="14dp"
             android:text="Las recompensas de minería necesitan 100 confirmaciones antes de poder gastarse."
             android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-            android:textColor="#64748B" />
+            android:textColor="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
 
     <TextView
@@ -86,7 +89,7 @@
         android:paddingBottom="8dp"
         android:text="Recompensas de minería"
         android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-        android:textColor="@color/onBackground"
+        android:textColor="?attr/colorOnBackground"
         android:textStyle="bold"
         app:layout_constraintTop_toBottomOf="@id/layoutBalanceDetails" />
 
@@ -109,7 +112,7 @@
         android:padding="24dp"
         android:text="No hay recompensas de minería en el balance actual."
         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-        android:textColor="#64748B"
+        android:textColor="?attr/colorOnSurfaceVariant"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@id/rvMiningRewards"
         app:layout_constraintEnd_toEndOf="parent"

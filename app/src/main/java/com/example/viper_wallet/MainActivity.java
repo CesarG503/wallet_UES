@@ -9,11 +9,13 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
 import android.util.Log;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -24,6 +26,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.text.TextUtils;
 import android.widget.ScrollView;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -57,9 +60,11 @@ import com.example.viper_wallet.network.rpc.BitcoinScanTxOutSetResult;
 import com.example.viper_wallet.walletcore.Constants;
 import com.example.viper_wallet.walletcore.WalletManager;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.MultiFormatWriter;
 import com.google.zxing.WriterException;
@@ -68,6 +73,7 @@ import com.journeyapps.barcodescanner.BarcodeCallback;
 import com.journeyapps.barcodescanner.BarcodeResult;
 import com.journeyapps.barcodescanner.DecoratedBarcodeView;
 
+import org.bitcoinj.base.Address;
 import org.bitcoinj.core.Transaction;
 import org.bitcoinj.wallet.Wallet;
 
@@ -101,6 +107,7 @@ public class MainActivity extends AppCompatActivity {
     private ActivityMainBinding binding;
     private WalletManager walletManager;
     private ActivityResultLauncher<String> cameraPermissionLauncher;
+    private ActivityResultLauncher<String> notificationPermissionLauncher;
     private EditText pendingScanAddressEditText;
     private DecoratedBarcodeView activeScannerView;
     private final Handler balanceHandler = new Handler(Looper.getMainLooper());
@@ -109,7 +116,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean isBalancePolling;
     private boolean isBalanceRequestInFlight;
     private boolean isBalanceRefreshQueued;
-    private boolean isServerWalletInitialized;
+    private static boolean isServerWalletInitialized;
     private boolean isMining;
     private boolean isMiningRequestInFlight;
     private volatile boolean shouldMineCurrentWork;
@@ -172,6 +179,7 @@ public class MainActivity extends AppCompatActivity {
         walletManager = WalletManager.getInstance(this);
 
         setupCameraPermissionLauncher();
+        setupNotificationPermissionLauncher();
         setupWindowInsets();
         setupListeners();
 
@@ -180,6 +188,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void goToLogin() {
+        isServerWalletInitialized = false;
+        BalanceDetailsActivity.lastScanResult = null;
+        BalanceDetailsActivity.lastAddresses = null;
         walletManager.reset();
         startActivity(new Intent(this, LoginActivity.class));
         finish();
@@ -206,7 +217,18 @@ public class MainActivity extends AppCompatActivity {
     private void setupWindowInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(binding.main, (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+            // Aplicar padding lateral y inferior al root para evitar solapamiento con gestos/botones
+            v.setPadding(systemBars.left, 0, systemBars.right, systemBars.bottom);
+            
+            // Aplicar el padding superior (Notch/Status Bar) al primer contenedor del dashboard
+            // para que el fondo del ScrollView sí suba hasta arriba.
+            binding.layoutDashboard.setPadding(
+                binding.layoutDashboard.getPaddingLeft(),
+                systemBars.top,
+                binding.layoutDashboard.getPaddingRight(),
+                binding.layoutDashboard.getPaddingBottom()
+            );
+
             return insets;
         });
     }
@@ -219,6 +241,17 @@ public class MainActivity extends AppCompatActivity {
                         resumeActiveScannerIfPermitted();
                     } else {
                         Toast.makeText(this, "Permiso de cámara denegado", Toast.LENGTH_SHORT).show();
+                    }
+                }
+        );
+    }
+
+    private void setupNotificationPermissionLauncher() {
+        notificationPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                isGranted -> {
+                    if (isGranted) {
+                        registerPushNotifications();
                     }
                 }
         );
@@ -353,6 +386,48 @@ public class MainActivity extends AppCompatActivity {
         walletManager.startSyncAsync();
         initializeServerWalletOnce();
         startBalancePolling();
+        checkNotificationPermission();
+    }
+
+    private void checkNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                registerPushNotifications();
+            } else {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+            }
+        } else {
+            registerPushNotifications();
+        }
+    }
+
+    private void registerPushNotifications() {
+        String address = walletManager.getCurrentReceiveAddress();
+        if (address == null) return;
+
+        FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
+            if (!task.isSuccessful()) {
+                Log.w(TAG, "Fetching FCM registration token failed", task.getException());
+                return;
+            }
+
+            String token = task.getResult();
+            Log.d(TAG, "FCM Token: " + token);
+
+            MiningApiClient.getInstance().registerDevice(token, address, new Callback<Map<String, Object>>() {
+                @Override
+                public void onResponse(Call<Map<String, Object>> call, Response<Map<String, Object>> response) {
+                    if (response.isSuccessful()) {
+                        Log.i(TAG, "Push notifications registered for address: " + address);
+                    }
+                }
+
+                @Override
+                public void onFailure(Call<Map<String, Object>> call, Throwable t) {
+                    Log.w(TAG, "Failed to register push notifications", t);
+                }
+            });
+        });
     }
 
     private void setupListeners() {
@@ -372,38 +447,15 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Servicios / Popup Menu
-        binding.btnServices.setOnClickListener(v -> {
-            PopupMenu popupMenu = new PopupMenu(this, v);
-            popupMenu.getMenu().add("Historial completo");
-            popupMenu.getMenu().add("Amigos");
-            popupMenu.getMenu().add("Copiar Dirección");
-            popupMenu.setOnMenuItemClickListener(item -> {
-                if ("Historial completo".equals(item.getTitle())) {
-                    startActivity(new Intent(this, com.example.viper_wallet.auth.TransactionHistoryActivity.class));
-                    return true;
-                } else if ("Amigos".equals(item.getTitle())) {
-                    showFriendsDialog();
-                    return true;
-                } else if ("Copiar Dirección".equals(item.getTitle())) {
-                    String address = walletManager.getCurrentReceiveAddress();
-                    if (address != null) {
-                        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                        android.content.ClipData clip = android.content.ClipData.newPlainText("Dirección de Recepción", address);
-                        clipboard.setPrimaryClip(clip);
-                        Toast.makeText(this, "Dirección copiada", Toast.LENGTH_SHORT).show();
-                    } else {
-                        Toast.makeText(this, "No hay dirección disponible", Toast.LENGTH_SHORT).show();
-                    }
-                    return true;
-                }
-                return false;
-            });
-            popupMenu.show();
-        });
+        // Servicios
+        binding.btnServices.setOnClickListener(v -> showServicesDialog());
 
-        binding.btnReceive.setOnClickListener(v -> showReceiveAddress());
-        binding.btnSend.setOnClickListener(v -> showSendDialog());
+        binding.btnReceive.setOnClickListener(v -> {
+            startActivity(new Intent(this, ReceiveActivity.class));
+        });
+        binding.btnSend.setOnClickListener(v -> {
+            startActivity(new Intent(this, TransferActivity.class));
+        });
         binding.layoutBalanceSummary.setOnClickListener(v ->
                 startActivity(new Intent(this, BalanceDetailsActivity.class))
         );
@@ -499,102 +551,6 @@ public class MainActivity extends AppCompatActivity {
                 Log.w(TAG, "No se pudo cargar wallet RPC " + walletName, t);
             }
         });
-    }
-
-    private void showReceiveAddress() {
-        String address = walletManager.getCurrentReceiveAddress();
-
-        if (address == null) {
-            Toast.makeText(this, R.string.empty_receive_address, Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        binding.tvReceiveAddress.setText(address);
-        registerAddressWithServer(address, false);
-
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dpToPx(24), dpToPx(12), dpToPx(24), 0);
-
-        TextView messageView = new TextView(this);
-        messageView.setText(R.string.receive_address_message);
-        layout.addView(messageView);
-
-        ImageView qrImageView = new ImageView(this);
-        LinearLayout.LayoutParams qrLayoutParams = new LinearLayout.LayoutParams(
-                dpToPx(QR_CODE_SIZE_DP),
-                dpToPx(QR_CODE_SIZE_DP)
-        );
-        qrLayoutParams.gravity = Gravity.CENTER_HORIZONTAL;
-        qrLayoutParams.setMargins(0, dpToPx(16), 0, dpToPx(16));
-        layout.addView(qrImageView, qrLayoutParams);
-
-        TextView addressView = new TextView(this);
-        addressView.setTextIsSelectable(true);
-        addressView.setGravity(Gravity.CENTER_HORIZONTAL);
-        layout.addView(addressView);
-
-        updateReceiveAddressViews(address, qrImageView, addressView);
-
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.receive_address_title)
-                .setView(layout)
-                .setNeutralButton("Nueva dirección", null)
-                .setPositiveButton(R.string.btn_done, (dialogInterface, which) -> dialogInterface.dismiss())
-                .create();
-
-        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v ->
-                createFreshReceiveAddress(qrImageView, addressView)
-        ));
-        dialog.show();
-    }
-
-    private void createFreshReceiveAddress(ImageView qrImageView, TextView addressView) {
-        try {
-            String address = walletManager.getFreshReceiveAddress();
-            if (address == null) {
-                Toast.makeText(this, R.string.empty_receive_address, Toast.LENGTH_SHORT).show();
-                return;
-            }
-            binding.tvReceiveAddress.setText(address);
-            registerAddressWithServer(address, true);
-            updateReceiveAddressViews(address, qrImageView, addressView);
-        } catch (IOException e) {
-            Toast.makeText(this, R.string.empty_receive_address, Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void updateReceiveAddressViews(String address, ImageView qrImageView, TextView addressView) {
-        addressView.setText(address);
-        try {
-            qrImageView.setImageBitmap(generateQrBitmap(address));
-            qrImageView.setVisibility(View.VISIBLE);
-        } catch (WriterException e) {
-            Log.w(TAG, "No se pudo generar el QR para la dirección " + address, e);
-            qrImageView.setVisibility(View.GONE);
-        }
-    }
-
-    private Bitmap generateQrBitmap(String content) throws WriterException {
-        int size = dpToPx(QR_CODE_SIZE_DP);
-        BitMatrix bitMatrix = new MultiFormatWriter().encode(
-                content,
-                BarcodeFormat.QR_CODE,
-                size,
-                size
-        );
-
-        int[] pixels = new int[size * size];
-        for (int y = 0; y < size; y++) {
-            int offset = y * size;
-            for (int x = 0; x < size; x++) {
-                pixels[offset + x] = bitMatrix.get(x, y) ? Color.BLACK : Color.WHITE;
-            }
-        }
-
-        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        bitmap.setPixels(pixels, 0, size, 0, 0, size, size);
-        return bitmap;
     }
 
     private int dpToPx(int dp) {
@@ -730,6 +686,12 @@ public class MainActivity extends AppCompatActivity {
         miningDialog.show();
     }
 
+    private int getThemeColor(int attr) {
+        TypedValue tv = new TypedValue();
+        getTheme().resolveAttribute(attr, tv, true);
+        return tv.data;
+    }
+
     private View createMiningCircleView() {
         FrameLayout circle = new FrameLayout(this);
         int circleSize = dpToPx(236);
@@ -741,13 +703,13 @@ public class MainActivity extends AppCompatActivity {
 
         GradientDrawable background = new GradientDrawable();
         background.setShape(GradientDrawable.OVAL);
-        background.setColor(ContextCompat.getColor(this, R.color.primary));
-        background.setStroke(dpToPx(4), ContextCompat.getColor(this, R.color.tertiary));
+        background.setColor(getThemeColor(androidx.appcompat.R.attr.colorPrimary));
+        background.setStroke(dpToPx(4), getThemeColor(com.google.android.material.R.attr.colorTertiary));
         circle.setBackground(background);
 
         miningCircleText = new TextView(this);
         miningCircleText.setGravity(Gravity.CENTER);
-        miningCircleText.setTextColor(ContextCompat.getColor(this, R.color.white));
+        miningCircleText.setTextColor(getThemeColor(com.google.android.material.R.attr.colorOnPrimary));
         miningCircleText.setTextSize(30);
         miningCircleText.setTypeface(Typeface.DEFAULT_BOLD);
         miningCircleText.setText("MINANDO");
@@ -1128,7 +1090,7 @@ public class MainActivity extends AppCompatActivity {
 
         MaterialButton btnSaveFriend = new MaterialButton(this);
         btnSaveFriend.setText("Guardar como amigo");
-        btnSaveFriend.setIconResource(android.R.drawable.ic_menu_save);
+        btnSaveFriend.setIconResource(R.drawable.ic_plus);
         layout.addView(btnSaveFriend);
 
         final EditText etAmount = new EditText(this);
@@ -1138,7 +1100,7 @@ public class MainActivity extends AppCompatActivity {
 
         MaterialButton btnUseMax = new MaterialButton(this);
         btnUseMax.setText("Usar máximo");
-        btnUseMax.setIconResource(android.R.drawable.ic_menu_upload);
+        btnUseMax.setIconResource(R.drawable.ic_arrow_up_right);
         layout.addView(btnUseMax);
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
@@ -1173,6 +1135,10 @@ public class MainActivity extends AppCompatActivity {
                 etAddress.setError("Escanea o escribe una dirección");
                 return;
             }
+            if (!isValidAddress(address)) {
+                etAddress.setError("Dirección inválida para " + Constants.NETWORK_NAME);
+                return;
+            }
             if (amountStr.isEmpty()) {
                 etAmount.setError("Escribe el monto");
                 return;
@@ -1194,32 +1160,139 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void showServicesDialog() {
+        android.widget.GridLayout gridLayout = new android.widget.GridLayout(this);
+        gridLayout.setColumnCount(2);
+        gridLayout.setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16));
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Servicios")
+                .setView(gridLayout)
+                .create();
+
+        gridLayout.addView(createServiceCard("Historial", R.drawable.ic_history_mdi, v -> {
+            dialog.dismiss();
+            startActivity(new Intent(this, com.example.viper_wallet.auth.TransactionHistoryActivity.class));
+        }));
+
+        gridLayout.addView(createServiceCard("Amigos", R.drawable.ic_people_mdi, v -> {
+            dialog.dismiss();
+            showFriendsDialog();
+        }));
+
+        gridLayout.addView(createServiceCard("Mi QR", R.drawable.ic_qrcode_mdi, v -> {
+            dialog.dismiss();
+            startActivity(new Intent(this, ReceiveActivity.class));
+        }));
+
+        gridLayout.addView(createServiceCard("Copiar Dir.", R.drawable.ic_copy_mdi, v -> {
+            dialog.dismiss();
+            String address = walletManager.getCurrentReceiveAddress();
+            if (address != null) {
+                android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                android.content.ClipData clip = android.content.ClipData.newPlainText("Dirección", address);
+                clipboard.setPrimaryClip(clip);
+                Toast.makeText(this, "Dirección copiada", Toast.LENGTH_SHORT).show();
+            }
+        }));
+
+        dialog.show();
+    }
+
+    private View createServiceCard(String title, int iconRes, View.OnClickListener listener) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(Gravity.CENTER);
+        card.setPadding(dpToPx(12), dpToPx(20), dpToPx(12), dpToPx(20));
+        card.setClickable(true);
+        card.setFocusable(true);
+
+        // Usar colorPrimaryContainer para que coincida exactamente con los botones circulares del dashboard
+        TypedValue typedValue = new TypedValue();
+        getTheme().resolveAttribute(com.google.android.material.R.attr.colorPrimaryContainer, typedValue, true);
+        int containerColor = typedValue.data;
+        
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(containerColor);
+        bg.setCornerRadius(dpToPx(20));
+
+        TypedValue outValue = new TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, outValue, true);
+        android.graphics.drawable.RippleDrawable ripple = new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(Color.parseColor("#20000000")),
+                bg,
+                null
+        );
+        card.setBackground(ripple);
+        card.setElevation(dpToPx(1));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        // Usar colorPrimary para que coincida con los iconos del dashboard
+        TypedValue iconColorValue = new TypedValue();
+        getTheme().resolveAttribute(androidx.appcompat.R.attr.colorPrimary, iconColorValue, true);
+        icon.setColorFilter(iconColorValue.data);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dpToPx(30), dpToPx(30));
+        iconParams.setMargins(0, 0, 0, dpToPx(10));
+        card.addView(icon, iconParams);
+
+        TextView label = new TextView(this);
+        label.setText(title);
+        label.setTextSize(14);
+        label.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        
+        // Usar colorOnPrimaryContainer para garantizar legibilidad sobre el fondo morado/vibrante
+        TypedValue textColorValue = new TypedValue();
+        getTheme().resolveAttribute(com.google.android.material.R.attr.colorOnPrimaryContainer, textColorValue, true);
+        label.setTextColor(textColorValue.data);
+
+        label.setGravity(Gravity.CENTER);
+        card.addView(label);
+
+        card.setOnClickListener(listener);
+
+        android.widget.GridLayout.LayoutParams params = new android.widget.GridLayout.LayoutParams();
+        params.width = 0;
+        params.height = android.widget.GridLayout.LayoutParams.WRAP_CONTENT;
+        params.columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f);
+        params.setMargins(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8));
+        card.setLayoutParams(params);
+
+        return card;
+    }
+
     private void showFriendsDialog() {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dpToPx(20), dpToPx(12), dpToPx(20), 0);
+        content.setPadding(dpToPx(20), dpToPx(16), dpToPx(20), dpToPx(16));
+
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        buttonParams.setMargins(0, 0, 0, dpToPx(8));
 
         MaterialButton btnAddFriend = new MaterialButton(this);
         btnAddFriend.setText("Agregar amigo con QR");
-        btnAddFriend.setIconResource(android.R.drawable.ic_input_add);
+        btnAddFriend.setIconResource(R.drawable.ic_plus);
+        btnAddFriend.setLayoutParams(buttonParams);
         content.addView(btnAddFriend);
 
         MaterialButton btnSendByQr = new MaterialButton(this);
         btnSendByQr.setText("Enviar escaneando QR");
-        btnSendByQr.setIconResource(android.R.drawable.ic_menu_camera);
+        btnSendByQr.setIconResource(R.drawable.ic_qrcode_mdi);
+        btnSendByQr.setLayoutParams(buttonParams);
         content.addView(btnSendByQr);
 
         TextView loadingView = new TextView(this);
         loadingView.setText("Cargando amigos...");
         loadingView.setGravity(Gravity.CENTER_HORIZONTAL);
-        loadingView.setPadding(0, dpToPx(16), 0, dpToPx(16));
+        loadingView.setPadding(0, dpToPx(24), 0, dpToPx(24));
         content.addView(loadingView);
 
         ScrollView scrollView = new ScrollView(this);
         scrollView.addView(content);
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle("Amigos")
+                .setTitle("Mis Amigos")
                 .setView(scrollView)
                 .setNegativeButton("Cerrar", null)
                 .create();
@@ -1241,13 +1314,32 @@ public class MainActivity extends AppCompatActivity {
                     TextView emptyView = new TextView(MainActivity.this);
                     emptyView.setText("Aún no tienes amigos guardados.");
                     emptyView.setGravity(Gravity.CENTER_HORIZONTAL);
-                    emptyView.setPadding(0, dpToPx(16), 0, dpToPx(16));
+                    emptyView.setPadding(0, dpToPx(24), 0, dpToPx(24));
+                    emptyView.setTextColor(Color.parseColor("#64748B"));
                     content.addView(emptyView);
                     return;
                 }
 
-                for (AuthManager.Contact contact : contacts) {
+                // Ordenar alfabéticamente por nombre
+                java.util.Collections.sort(contacts, (c1, c2) -> {
+                    String n1 = c1.getName() != null ? c1.getName() : "";
+                    String n2 = c2.getName() != null ? c2.getName() : "";
+                    return n1.compareToIgnoreCase(n2);
+                });
+
+                for (int i = 0; i < contacts.size(); i++) {
+                    AuthManager.Contact contact = contacts.get(i);
                     content.addView(createFriendRow(contact, dialog));
+
+                    if (i < contacts.size() - 1) {
+                        View divider = new View(MainActivity.this);
+                        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(1));
+                        lp.setMargins(dpToPx(56), 0, 0, 0); // Skip icon space
+                        divider.setLayoutParams(lp);
+                        divider.setBackgroundColor(Color.parseColor("#EEEEEE"));
+                        content.addView(divider);
+                    }
                 }
             }
 
@@ -1262,37 +1354,87 @@ public class MainActivity extends AppCompatActivity {
 
     private View createFriendRow(AuthManager.Contact contact, AlertDialog parentDialog) {
         LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(0, dpToPx(14), 0, dpToPx(14));
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dpToPx(12), 0, dpToPx(12));
+
+        String name = contact.getName() != null && !contact.getName().isEmpty() ? contact.getName() : "Sin nombre";
+        String initial = name.substring(0, 1).toUpperCase(Locale.US);
+
+        // Icono circular con inicial
+        TextView iconView = new TextView(this);
+        int iconSize = dpToPx(42);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(iconSize, iconSize);
+        iconParams.setMargins(0, 0, dpToPx(14), 0);
+        iconView.setLayoutParams(iconParams);
+        iconView.setGravity(Gravity.CENTER);
+        iconView.setText(initial);
+        iconView.setTextColor(Color.WHITE);
+        iconView.setTextSize(18);
+        iconView.setTypeface(Typeface.DEFAULT_BOLD);
+
+        GradientDrawable iconBg = new GradientDrawable();
+        iconBg.setShape(GradientDrawable.OVAL);
+        iconBg.setColor(getContactColor(name));
+        iconView.setBackground(iconBg);
+        row.addView(iconView);
+
+        // Info: Nombre y Dirección
+        LinearLayout infoLayout = new LinearLayout(this);
+        infoLayout.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams infoParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        infoLayout.setLayoutParams(infoParams);
 
         TextView nameView = new TextView(this);
-        nameView.setText(contact.getName() != null && !contact.getName().isEmpty() ? contact.getName() : "Sin nombre");
+        nameView.setText(name);
         nameView.setTextSize(16);
         nameView.setTypeface(Typeface.DEFAULT_BOLD);
-        row.addView(nameView);
+        nameView.setTextColor(getThemeColor(com.google.android.material.R.attr.colorOnSurface));
+        infoLayout.addView(nameView);
 
         TextView addressView = new TextView(this);
         addressView.setText(contact.getPublicKey());
         addressView.setTextSize(12);
-        addressView.setTextColor(Color.parseColor("#64748B"));
-        addressView.setTextIsSelectable(true);
-        row.addView(addressView);
+        addressView.setTextColor(getThemeColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
+        addressView.setSingleLine(true);
+        addressView.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        infoLayout.addView(addressView);
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setGravity(Gravity.END);
-        actions.setPadding(0, dpToPx(8), 0, 0);
+        row.addView(infoLayout);
 
+        // Botón Enviar (más compacto)
         MaterialButton btnTransfer = new MaterialButton(this);
-        btnTransfer.setText("Transferir");
+        btnTransfer.setText("Enviar");
+        btnTransfer.setPadding(dpToPx(8), 0, dpToPx(8), 0);
         btnTransfer.setOnClickListener(v -> {
             parentDialog.dismiss();
-            showSendDialog(contact.getPublicKey());
+            Intent intent = new Intent(this, TransferActivity.class);
+            intent.putExtra("address", contact.getPublicKey());
+            intent.putExtra("name", contact.getName());
+            startActivity(intent);
         });
-        actions.addView(btnTransfer);
-        row.addView(actions);
+
+        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dpToPx(40)
+        );
+        btnParams.setMargins(dpToPx(8), 0, 0, 0);
+        btnTransfer.setLayoutParams(btnParams);
+        btnTransfer.setTextSize(12);
+
+        row.addView(btnTransfer);
 
         return row;
+    }
+
+    private int getContactColor(String name) {
+        int[] colors = {
+                Color.parseColor("#EF5350"), Color.parseColor("#EC407A"), Color.parseColor("#AB47BC"),
+                Color.parseColor("#7E57C2"), Color.parseColor("#5C6BC0"), Color.parseColor("#42A5F5"),
+                Color.parseColor("#26A69A"), Color.parseColor("#66BB6A"), Color.parseColor("#FFA726"),
+                Color.parseColor("#FF7043"), Color.parseColor("#8D6E63"), Color.parseColor("#78909C")
+        };
+        return colors[Math.abs(name.hashCode()) % colors.length];
     }
 
     private void showAddFriendDialog(String prefilledAddress) {
@@ -1348,6 +1490,10 @@ public class MainActivity extends AppCompatActivity {
                 }
                 if (address.isEmpty()) {
                     etAddress.setError("Escanea o escribe la dirección");
+                    return;
+                }
+                if (!isValidAddress(address)) {
+                    etAddress.setError("Dirección inválida");
                     return;
                 }
                 saveFriend(name, address, () -> {
@@ -1471,6 +1617,16 @@ public class MainActivity extends AppCompatActivity {
                     : addressWithQuery;
         }
         return value;
+    }
+
+    private boolean isValidAddress(String addressStr) {
+        if (addressStr == null || addressStr.isEmpty()) return false;
+        try {
+            Address.fromString(Constants.NETWORK_PARAMETERS, addressStr);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void sendTransaction(String address, long amountSats) {
@@ -1770,8 +1926,15 @@ public class MainActivity extends AppCompatActivity {
             if (wallet == null) {
                 wallet = walletManager.loadWallet();
             }
-            if (wallet != null) {
-                displayBalance(wallet.getBalance().value);
+            if (wallet != null && binding != null) {
+                // Priorizar el último balance conocido (RPC) para evitar que el balance SPV (que tarda en sincronizar)
+                // lo resetee a cero visualmente al navegar entre pantallas.
+                if (lastTotalBalanceSats > 0 || lastImmatureMiningSats > 0) {
+                    displayBalance(new BalanceSummary(lastTotalBalanceSats, lastSpendableBalanceSats, lastImmatureMiningSats, lastMiningMaturityBlocks));
+                } else {
+                    displayBalance(wallet.getBalance().value);
+                }
+
                 binding.tvNetwork.setText(Constants.COIN_DISPLAY_NAME + " " + Constants.NETWORK_NAME);
 
                 String receiveAddress = walletManager.getCurrentReceiveAddress();
@@ -2032,7 +2195,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String formatCoinAmount(long sats) {
-        return String.format(Locale.US, "%.8f %s", sats / 100_000_000.0, Constants.COIN_TICKER);
+        BigDecimal coin = BigDecimal.valueOf(sats).divide(BigDecimal.valueOf(100_000_000L), 8, RoundingMode.HALF_UP);
+        java.text.DecimalFormat df = new java.text.DecimalFormat("#,##0.00######");
+        return df.format(coin) + " " + Constants.COIN_TICKER;
     }
 
     private String satsToPlainCoin(long sats) {

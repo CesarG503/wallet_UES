@@ -12,6 +12,8 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.android.material.color.MaterialColors;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
@@ -108,13 +110,10 @@ public class RegisterStep4AesFragment extends Fragment {
     }
 
     private void setReq(TextView icon, boolean met) {
-        if (met) {
-            icon.setText("●");
-            icon.setTextColor(requireContext().getColor(R.color.primary));
-        } else {
-            icon.setText("○");
-            icon.setTextColor(requireContext().getColor(android.R.color.darker_gray));
-        }
+        int colorAttr = met ? androidx.appcompat.R.attr.colorPrimary : com.google.android.material.R.attr.colorOnSurfaceVariant;
+        int color = MaterialColors.getColor(icon, colorAttr);
+        icon.setTextColor(color);
+        icon.setText(met ? "●" : "○");
     }
 
     private boolean isAesPasswordValid(String pass) {

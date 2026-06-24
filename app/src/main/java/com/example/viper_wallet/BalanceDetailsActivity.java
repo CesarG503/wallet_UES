@@ -7,11 +7,16 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Toast;
 
+import androidx.activity.EdgeToEdge;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.material.color.MaterialColors;
 import com.example.viper_wallet.databinding.ActivityBalanceDetailsBinding;
 import com.example.viper_wallet.databinding.ItemMiningRewardBinding;
 import com.example.viper_wallet.network.rpc.BitcoinRpcClient;
@@ -36,6 +41,9 @@ public class BalanceDetailsActivity extends AppCompatActivity {
     private static final String TAG = "BalanceDetailsActivity";
     private static final int COINBASE_MATURITY_CONFIRMATIONS = 100;
 
+    static BitcoinScanTxOutSetResult lastScanResult;
+    static List<String> lastAddresses;
+
     private ActivityBalanceDetailsBinding binding;
     private WalletManager walletManager;
     private MiningRewardAdapter rewardAdapter;
@@ -43,8 +51,15 @@ public class BalanceDetailsActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        EdgeToEdge.enable(this);
         binding = ActivityBalanceDetailsBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.mainDetails, (v, insets) -> {
+            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+            return insets;
+        });
 
         walletManager = WalletManager.getInstance(this);
         setSupportActionBar(binding.toolbar);
@@ -53,7 +68,11 @@ public class BalanceDetailsActivity extends AppCompatActivity {
         rewardAdapter = new MiningRewardAdapter();
         binding.rvMiningRewards.setAdapter(rewardAdapter);
 
-        loadBalanceDetails();
+        if (lastScanResult != null && lastAddresses != null) {
+            renderBalance(lastScanResult, lastAddresses);
+        } else {
+            loadBalanceDetails();
+        }
     }
 
     private void loadBalanceDetails() {
@@ -102,6 +121,8 @@ public class BalanceDetailsActivity extends AppCompatActivity {
                     return;
                 }
 
+                lastScanResult = result;
+                lastAddresses = addresses;
                 renderBalance(result, addresses);
             }
 
@@ -329,14 +350,24 @@ public class BalanceDetailsActivity extends AppCompatActivity {
             private void bind(MiningReward reward) {
                 itemBinding.tvRewardAmount.setText(formatCoinAmount(reward.amountSats));
 
+                int color;
                 if (reward.immature) {
                     itemBinding.tvRewardStatus.setText("Inmadura");
-                    itemBinding.tvRewardStatus.setTextColor(ContextCompat.getColor(BalanceDetailsActivity.this, R.color.immature_balance));
+                    color = ContextCompat.getColor(BalanceDetailsActivity.this, R.color.immature_balance);
+                    itemBinding.tvRewardStatus.setTextColor(color);
                     itemBinding.tvRewardMaturity.setText("Faltan " + reward.blocksRemaining + " bloques para madurar");
                 } else {
                     itemBinding.tvRewardStatus.setText("Disponible");
-                    itemBinding.tvRewardStatus.setTextColor(ContextCompat.getColor(BalanceDetailsActivity.this, R.color.primary));
+                    color = MaterialColors.getColor(BalanceDetailsActivity.this, androidx.appcompat.R.attr.colorPrimary, 0xFF1B8A5A);
+                    itemBinding.tvRewardStatus.setTextColor(color);
                     itemBinding.tvRewardMaturity.setText("Lista para usar");
+                }
+
+                itemBinding.ivMiningIcon.setImageTintList(android.content.res.ColorStateList.valueOf(color));
+                android.graphics.drawable.Drawable bg = itemBinding.ivMiningIcon.getBackground();
+                if (bg != null) {
+                    bg.setTint(color);
+                    bg.setAlpha(40);
                 }
 
                 String shortTx = reward.txId != null && reward.txId.length() > 12

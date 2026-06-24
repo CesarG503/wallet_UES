@@ -14,4 +14,7 @@ public interface MiningApiService {
 
     @POST("mining/submit")
     Call<ApiEnvelope<MiningSubmitResult>> submitSolution(@Body Map<String, Object> body);
+
+    @POST("devices/register")
+    Call<Map<String, Object>> registerDevice(@Body Map<String, String> body);
 }

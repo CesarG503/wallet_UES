@@ -152,6 +152,10 @@ public class WalletManager {
 
     public Wallet loadWallet() throws IOException {
         synchronized (walletFileLock) {
+            if (wallet != null) {
+                return wallet;
+            }
+
             File walletFile = getWalletFile();
             if (!walletFile.exists() || walletFile.length() == 0) return null;
 
@@ -297,7 +301,12 @@ public class WalletManager {
 
     public long getEstimatedSpendableBalanceSats() {
         if (wallet == null) return 0L;
-        return wallet.getBalance(Wallet.BalanceType.ESTIMATED_SPENDABLE).value;
+        try {
+            return wallet.getBalance(Wallet.BalanceType.ESTIMATED_SPENDABLE).value;
+        } catch (Exception e) {
+            Log.e(TAG, "Error al calcular balance estimado", e);
+            return 0L;
+        }
     }
 
     public long getPendingOutgoingSats() {
@@ -324,14 +333,17 @@ public class WalletManager {
 
         Address destination = Address.fromString(Constants.NETWORK_PARAMETERS, recipientAddress);
         long amount = 0L;
-        for (org.bitcoinj.core.TransactionOutput output : tx.getOutputs()) {
+        List<org.bitcoinj.core.TransactionOutput> outputs = tx.getOutputs();
+        if (outputs == null) return 0L;
+
+        for (org.bitcoinj.core.TransactionOutput output : outputs) {
+            if (output == null) continue;
             try {
                 Address outputAddress = output.getScriptPubKey().getToAddress(Constants.NETWORK_PARAMETERS);
                 if (destination.equals(outputAddress)) {
                     amount += output.getValue().value;
                 }
             } catch (Exception ignored) {
-                // Non-address outputs are not destination payments for this flow.
             }
         }
         return amount;
