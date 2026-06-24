@@ -22,7 +22,6 @@ import com.example.viper_wallet.databinding.ItemMiningRewardBinding;
 import com.example.viper_wallet.network.rpc.BitcoinRpcClient;
 import com.example.viper_wallet.network.rpc.BitcoinRpcResponse;
 import com.example.viper_wallet.network.rpc.BitcoinScanTxOutSetResult;
-import com.example.viper_wallet.walletcore.Constants;
 import com.example.viper_wallet.walletcore.WalletManager;
 
 import org.bitcoinj.wallet.Wallet;
@@ -286,7 +285,7 @@ public class BalanceDetailsActivity extends AppCompatActivity {
     }
 
     private String formatCoinAmount(long sats) {
-        return String.format(Locale.US, "%.8f %s", sats / 100_000_000.0, Constants.COIN_TICKER);
+        return com.example.viper_wallet.walletcore.CurrencyUtils.formatCoinAmount(sats);
     }
 
     private static class MiningReward {

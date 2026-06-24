@@ -2200,23 +2200,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String formatCoinAmount(long sats) {
-        BigDecimal coin = BigDecimal.valueOf(sats).divide(BigDecimal.valueOf(100_000_000L), 8, RoundingMode.HALF_UP);
-        java.text.DecimalFormat df = new java.text.DecimalFormat("#,##0.00######");
-        return df.format(coin) + " " + Constants.COIN_TICKER;
+        return com.example.viper_wallet.walletcore.CurrencyUtils.formatCoinAmount(sats);
     }
 
     private String satsToPlainCoin(long sats) {
-        return BigDecimal.valueOf(sats)
-                .movePointLeft(8)
-                .setScale(8, RoundingMode.DOWN)
-                .toPlainString();
+        return com.example.viper_wallet.walletcore.CurrencyUtils.satsToPlainCoin(sats);
     }
 
     private long parseCoinAmountToSats(String amount) {
-        return new BigDecimal(amount)
-                .movePointRight(8)
-                .setScale(0, RoundingMode.UNNECESSARY)
-                .longValueExact();
+        return com.example.viper_wallet.walletcore.CurrencyUtils.parseCoinAmountToSats(amount);
     }
 
     private BitcoinRpcResponse<?> parseErrorResponse(Response<?> response) {

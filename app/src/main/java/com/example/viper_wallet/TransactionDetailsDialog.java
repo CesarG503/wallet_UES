@@ -13,7 +13,6 @@ import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 import com.example.viper_wallet.auth.AuthManager;
 import com.example.viper_wallet.models.TransactionRecord;
-import com.example.viper_wallet.walletcore.Constants;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.text.SimpleDateFormat;
@@ -189,7 +188,7 @@ public final class TransactionDetailsDialog {
     private static String displayAmount(TransactionRecord transaction) {
         boolean isSend = "SEND".equals(transaction.getType());
         String sign = isSend ? "-" : "+";
-        return sign + String.format(Locale.US, "%.8f %s", transaction.getAmountSats() / 100_000_000.0, Constants.COIN_TICKER);
+        return sign + com.example.viper_wallet.walletcore.CurrencyUtils.formatCoinAmount(transaction.getAmountSats());
     }
 
     private static String displayDate(TransactionRecord transaction) {

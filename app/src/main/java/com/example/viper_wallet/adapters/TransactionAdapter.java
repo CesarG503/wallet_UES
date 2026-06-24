@@ -9,7 +9,6 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import com.example.viper_wallet.R;
 import com.example.viper_wallet.models.TransactionRecord;
-import com.example.viper_wallet.walletcore.Constants;
 import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Locale;
@@ -70,7 +69,7 @@ public class TransactionAdapter extends RecyclerView.Adapter<TransactionAdapter.
             bg.setAlpha(40); // 15% opacity
         }
         
-        String amountStr = String.format(Locale.US, "%.8f %s", tx.getAmountSats() / 100_000_000.0, Constants.COIN_TICKER);
+        String amountStr = com.example.viper_wallet.walletcore.CurrencyUtils.formatCoinAmount(tx.getAmountSats());
         holder.tvAmount.setText((isSend ? "-" : "+") + amountStr);
         holder.tvAmount.setTextColor(color);
         
