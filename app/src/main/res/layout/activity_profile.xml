@@ -121,6 +121,48 @@
                 android:textAppearance="@style/TextAppearance.Material3.BodySmall"
                 tools:text="abc123xyz456" />
 
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginVertical="12dp"
+                android:background="?attr/colorOutlineVariant" />
+
+            <!-- Google Authentication Provider Status -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Proveedor Google"
+                android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
+                android:textColor="?attr/colorPrimary" />
+
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp">
+
+                <TextView
+                    android:id="@+id/tvGoogleStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentStart="true"
+                    android:layout_centerVertical="true"
+                    android:layout_toLeftOf="@id/btnGoogleAction"
+                    android:layout_marginEnd="8dp"
+                    android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+                    tools:text="No vinculado" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnGoogleAction"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:text="Vincular"
+                    app:icon="@drawable/ic_google"
+                    app:iconTint="@null" />
+            </RelativeLayout>
+
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 

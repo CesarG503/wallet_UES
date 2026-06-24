@@ -86,5 +86,16 @@
     <string name="label_phrase">Frase:</string>
     <string name="link_view_phrase"><u>Ver Frase</u></string>
     <string name="security_auth_required">Se requiere autenticación para ver la semilla</string>
+
+    <!-- Main Dashboard -->
+    <string name="label_balance">Balance</string>
+    <string name="default_balance">0.00000000 UESCoin</string>
+    <string name="label_immature">Inmaduro: %1$s</string>
+    <string name="label_reload">Recargar</string>
+    <string name="label_services">Servicios</string>
+    <string name="label_activity">Actividad</string>
+    <string name="label_no_transactions">No hay transacciones aún</string>
+    <string name="content_desc_logo">Logo de Wallet UES</string>
+    <string name="content_desc_profile">Ver Perfil</string>
 </resources>
 

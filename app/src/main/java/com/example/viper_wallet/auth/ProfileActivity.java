@@ -15,15 +15,29 @@ import com.example.viper_wallet.R;
 import com.example.viper_wallet.walletcore.WalletManager;
 import com.google.android.gms.auth.api.signin.GoogleSignIn;
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.android.gms.auth.api.signin.GoogleSignInClient;
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+import com.google.android.gms.common.api.ApiException;
+import com.google.android.gms.tasks.Task;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.auth.AuthCredential;
+import com.google.firebase.auth.GoogleAuthProvider;
+import com.google.firebase.auth.UserInfo;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ValueEventListener;
+import androidx.annotation.Nullable;
+
 
 public class ProfileActivity extends AppCompatActivity {
+
+    private static final int RC_SIGN_IN = 9001;
+    private TextView tvGoogleStatus;
+    private com.google.android.material.button.MaterialButton btnGoogleAction;
+    private GoogleSignInClient mGoogleSignInClient;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -39,9 +53,20 @@ public class ProfileActivity extends AppCompatActivity {
         TextView tvNickname = findViewById(R.id.tvNickname);
         TextView tvEmail    = findViewById(R.id.tvUserEmail);
         TextView tvUid      = findViewById(R.id.tvUserId);
+        tvGoogleStatus      = findViewById(R.id.tvGoogleStatus);
+        btnGoogleAction     = findViewById(R.id.btnGoogleAction);
 
         tvEmail.setText(user.getEmail());
         tvUid.setText(user.getUid());
+
+        // Configurar Google Sign-In para la vinculación
+        GoogleSignInOptions gso = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestIdToken(getString(R.string.default_web_client_id))
+                .requestEmail()
+                .build();
+        mGoogleSignInClient = GoogleSignIn.getClient(this, gso);
+
+        updateProviderUI();
 
         // Cargar nickname desde Firebase Realtime Database
         FirebaseDatabase.getInstance().getReference()
@@ -76,8 +101,8 @@ public class ProfileActivity extends AppCompatActivity {
             FirebaseAuth.getInstance().signOut();
 
             // 2. Cerrar sesión en Google para limpiar caché de cuenta
-            GoogleSignInOptions gso = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build();
-            GoogleSignIn.getClient(this, gso).signOut().addOnCompleteListener(task -> {
+            GoogleSignInOptions logoutGso = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build();
+            GoogleSignIn.getClient(this, logoutGso).signOut().addOnCompleteListener(task -> {
                 // 3. Reiniciar wallet en memoria
                 com.example.viper_wallet.walletcore.WalletManager.getInstance(this).reset();
 
@@ -155,5 +180,79 @@ public class ProfileActivity extends AppCompatActivity {
         dialog.setOnDismissListener(dialogInterface ->
                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE));
         dialog.show();
+    }
+
+    private void updateProviderUI() {
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user == null) return;
+
+        boolean isGoogleLinked = false;
+        for (UserInfo profile : user.getProviderData()) {
+            if (GoogleAuthProvider.PROVIDER_ID.equals(profile.getProviderId())) {
+                isGoogleLinked = true;
+                break;
+            }
+        }
+
+        if (isGoogleLinked) {
+            tvGoogleStatus.setText("Vinculada");
+            btnGoogleAction.setText("Vinculada");
+            btnGoogleAction.setOnClickListener(v -> Toast.makeText(ProfileActivity.this, "Cuenta vinculada", Toast.LENGTH_SHORT).show());
+        } else {
+            tvGoogleStatus.setText("No vinculada");
+            btnGoogleAction.setText("Vincular");
+            btnGoogleAction.setOnClickListener(v -> signInWithGoogle());
+        }
+    }
+
+    private void signInWithGoogle() {
+        Intent signInIntent = mGoogleSignInClient.getSignInIntent();
+        startActivityForResult(signInIntent, RC_SIGN_IN);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == RC_SIGN_IN) {
+            Task<GoogleSignInAccount> task = GoogleSignIn.getSignedInAccountFromIntent(data);
+            try {
+                GoogleSignInAccount account = task.getResult(ApiException.class);
+                if (account != null) {
+                    FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+                    String googleEmail = account.getEmail();
+                    String userEmail = user != null ? user.getEmail() : null;
+
+                    if (userEmail == null || googleEmail == null || !googleEmail.trim().equalsIgnoreCase(userEmail.trim())) {
+                        Toast.makeText(this, "El correo de Google debe ser el mismo de la cuenta registrada.", Toast.LENGTH_LONG).show();
+                        mGoogleSignInClient.signOut(); // Limpiar caché para permitir elegir otra cuenta
+                        return;
+                    }
+                    linkGoogleAccount(account.getIdToken());
+                }
+            } catch (ApiException e) {
+                Toast.makeText(this, "Error de Google: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private void linkGoogleAccount(String idToken) {
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user == null || idToken == null) return;
+
+        AuthCredential credential = GoogleAuthProvider.getCredential(idToken, null);
+        user.linkWithCredential(credential)
+                .addOnCompleteListener(this, task -> {
+                    if (task.isSuccessful()) {
+                        Toast.makeText(ProfileActivity.this, "¡Cuenta de Google vinculada con éxito!", Toast.LENGTH_SHORT).show();
+                        updateProviderUI();
+                    } else {
+                        Exception exception = task.getException();
+                        if (exception instanceof com.google.firebase.auth.FirebaseAuthUserCollisionException) {
+                            Toast.makeText(ProfileActivity.this, "Esta cuenta de Google ya está vinculada a otro usuario.", Toast.LENGTH_LONG).show();
+                        } else {
+                            Toast.makeText(ProfileActivity.this, "Error al vincular: " + exception.getMessage(), Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                });
     }
 }

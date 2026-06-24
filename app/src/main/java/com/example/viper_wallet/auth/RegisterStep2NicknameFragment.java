@@ -80,10 +80,10 @@ public class RegisterStep2NicknameFragment extends Fragment {
             return;
         }
 
-        // Guardar en ViewModel y avanzar al paso 3 (semilla)
+        // Guardar en ViewModel y avanzar al paso 4 (semilla)
         viewModel.nickname.setValue(nickname);
-        viewModel.currentStep.setValue(3);
-        ((RegisterActivity) requireActivity()).goToStep(3);
+        viewModel.currentStep.setValue(4);
+        ((RegisterActivity) requireActivity()).goToStep(4);
     }
 
     private String getNicknameText() {

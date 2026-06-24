@@ -160,12 +160,24 @@
                             android:textSize="16sp" />
                     </com.google.android.material.textfield.TextInputLayout>
 
+                    <!-- Enlace ¿Olvidaste tu contraseña? -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnForgotPassword"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="end"
+                        android:layout_marginTop="8dp"
+                        android:text="¿Olvidaste tu contraseña?"
+                        android:textColor="?attr/colorPrimary"
+                        android:textSize="13sp" />
+
                     <!-- Botón Iniciar Sesión -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnLogin"
                         android:layout_width="match_parent"
                         android:layout_height="56dp"
-                        android:layout_marginTop="28dp"
+                        android:layout_marginTop="12dp"
                         android:text="@string/btn_login"
                         android:textSize="16sp"
                         android:textStyle="bold"

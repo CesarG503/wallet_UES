@@ -40,6 +40,7 @@ public class LoginActivity extends AppCompatActivity {
 
     private TextInputEditText etEmail, etPassword;
     private MaterialButton btnLogin;
+    private MaterialButton btnForgotPassword;
     private ProgressBar progressBar;
     private View layoutForm;
     private View layoutBiometricWait;
@@ -54,6 +55,9 @@ public class LoginActivity extends AppCompatActivity {
     private String pendingPassword = "";
     private boolean isLinkingFlow = false;
 
+    // Almacena la credencial de Google mientras se pide la contraseña al usuario
+    private AuthCredential pendingGoogleCredential = null;
+
     // ─────────────────────────────────────────────────────────────────────────
     // Lifecycle
     // ─────────────────────────────────────────────────────────────────────────
@@ -67,9 +71,10 @@ public class LoginActivity extends AppCompatActivity {
 
         etEmail         = findViewById(R.id.etEmail);
         etPassword      = findViewById(R.id.etPassword);
-        btnLogin        = findViewById(R.id.btnLogin);
-        progressBar     = findViewById(R.id.progressBar);
-        layoutForm      = findViewById(R.id.layoutForm);
+        btnLogin            = findViewById(R.id.btnLogin);
+        btnForgotPassword   = findViewById(R.id.btnForgotPassword);
+        progressBar         = findViewById(R.id.progressBar);
+        layoutForm          = findViewById(R.id.layoutForm);
         layoutBiometricWait = findViewById(R.id.layoutBiometricWait);
 
         // Configurar Google Sign-In para LOGIN
@@ -80,6 +85,7 @@ public class LoginActivity extends AppCompatActivity {
         mGoogleSignInClient = GoogleSignIn.getClient(this, gso);
 
         btnLogin.setOnClickListener(v -> handleEmailLogin());
+        btnForgotPassword.setOnClickListener(v -> handleForgotPassword());
         findViewById(R.id.btnGoogleSignIn).setOnClickListener(v -> signInWithGoogle());
         findViewById(R.id.btnRegisterLink).setOnClickListener(v ->
                 startActivity(new Intent(this, RegisterActivity.class)));
@@ -171,35 +177,132 @@ public class LoginActivity extends AppCompatActivity {
 
     private void firebaseAuthWithGoogle(String idToken) {
         setLoading(true);
-        authManager.signInWithGoogle(idToken, new AuthManager.AuthCallback() {
-            @Override
-            public void onSuccess(FirebaseUser user) {
-                if (isLinkingFlow) {
-                    isLinkingFlow = false;
-                    AuthCredential credential = EmailAuthProvider.getCredential(pendingEmail, pendingPassword);
-                    user.linkWithCredential(credential).addOnCompleteListener(linkTask -> {
-                        if (linkTask.isSuccessful()) {
-                            Toast.makeText(LoginActivity.this, "Cuenta vinculada exitosamente.", Toast.LENGTH_SHORT).show();
-                            verifyWalletAndProceed(user);
-                        } else {
-                            Toast.makeText(LoginActivity.this, "Error al vincular: " + linkTask.getException().getMessage(), Toast.LENGTH_LONG).show();
-                            FirebaseAuth.getInstance().signOut();
-                            mGoogleSignInClient.signOut().addOnCompleteListener(task -> {
-                                setLoading(false);
-                            });
-                        }
-                    });
-                } else {
-                    verifyWalletAndProceed(user);
-                }
-            }
+        AuthCredential googleCredential = GoogleAuthProvider.getCredential(idToken, null);
 
-            @Override
-            public void onError(String message) {
-                setLoading(false);
-                Toast.makeText(LoginActivity.this, "Error Google: " + message, Toast.LENGTH_LONG).show();
-            }
-        });
+        FirebaseAuth.getInstance().signInWithCredential(googleCredential)
+                .addOnCompleteListener(task -> {
+                    if (task.isSuccessful()) {
+                        FirebaseUser user = task.getResult().getUser();
+
+                        if (isLinkingFlow) {
+                            // Flujo inverso: el usuario intentó entrar con contraseña primero
+                            // (cuenta era solo Google). Ahora vinculamos la contraseña al UID de Google.
+                            isLinkingFlow = false;
+                            AuthCredential emailCred = EmailAuthProvider.getCredential(pendingEmail, pendingPassword);
+                            user.linkWithCredential(emailCred).addOnCompleteListener(linkTask -> {
+                                if (linkTask.isSuccessful()) {
+                                    Toast.makeText(LoginActivity.this, "Cuenta vinculada exitosamente.", Toast.LENGTH_SHORT).show();
+                                    verifyWalletAndProceed(user);
+                                } else {
+                                    Toast.makeText(LoginActivity.this,
+                                            "Error al vincular: " + linkTask.getException().getMessage(),
+                                            Toast.LENGTH_LONG).show();
+                                    FirebaseAuth.getInstance().signOut();
+                                    mGoogleSignInClient.signOut().addOnCompleteListener(t -> setLoading(false));
+                                }
+                            });
+                        } else {
+                            // Login normal con Google exitoso
+                            pendingGoogleCredential = null;
+                            verifyWalletAndProceed(user);
+                        }
+
+                    } else {
+                        Exception e = task.getException();
+                        if (e instanceof com.google.firebase.auth.FirebaseAuthUserCollisionException) {
+                            // El email ya existe con proveedor de contraseña.
+                            // Flujo nuevo: pedir contraseña → iniciar sesión con ella → vincular Google.
+                            com.google.firebase.auth.FirebaseAuthUserCollisionException collision =
+                                    (com.google.firebase.auth.FirebaseAuthUserCollisionException) e;
+                            String email = collision.getEmail();
+                            pendingGoogleCredential = googleCredential;
+                            setLoading(false);
+                            showPasswordDialogToLinkGoogle(email != null ? email : "");
+                        } else {
+                            setLoading(false);
+                            Toast.makeText(LoginActivity.this,
+                                    "Error Google: " + (e != null ? e.getMessage() : "Desconocido"),
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    }
+                });
+    }
+
+    /**
+     * Muestra un diálogo pidiendo la contraseña del usuario.
+     * El usuario tiene cuenta con Email/Password y quiere vincularle Google.
+     */
+    private void showPasswordDialogToLinkGoogle(String email) {
+        android.widget.EditText inputPassword = new android.widget.EditText(this);
+        inputPassword.setInputType(
+                android.text.InputType.TYPE_CLASS_TEXT
+                        | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        inputPassword.setHint("Tu contraseña");
+        int padding = (int) (16 * getResources().getDisplayMetrics().density);
+        inputPassword.setPadding(padding, padding, padding, padding);
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Vincular Google a tu cuenta")
+                .setMessage("El correo " + email + " ya tiene cuenta con contraseña.\n\n"
+                        + "Ingresa tu contraseña para iniciar sesión y vincular Google. "
+                        + "Después podrás entrar con cualquiera de los dos métodos.")
+                .setView(inputPassword)
+                .setPositiveButton("Vincular", (dialog, which) -> {
+                    String password = inputPassword.getText().toString();
+                    if (password.isEmpty()) {
+                        Toast.makeText(this, "Por favor ingresa tu contraseña.", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    linkGoogleToEmailAccount(email, password);
+                })
+                .setNegativeButton("Cancelar", (dialog, which) -> {
+                    pendingGoogleCredential = null;
+                })
+                .setCancelable(false)
+                .show();
+    }
+
+    /**
+     * Inicia sesión con las credenciales de correo/contraseña existentes
+     * y luego vincula la credencial de Google pendiente al mismo UID.
+     */
+    private void linkGoogleToEmailAccount(String email, String password) {
+        setLoading(true);
+        AuthCredential emailCredential = EmailAuthProvider.getCredential(email, password);
+
+        FirebaseAuth.getInstance().signInWithCredential(emailCredential)
+                .addOnCompleteListener(task -> {
+                    if (task.isSuccessful()) {
+                        FirebaseUser user = task.getResult().getUser();
+                        if (user != null && pendingGoogleCredential != null) {
+                            user.linkWithCredential(pendingGoogleCredential)
+                                    .addOnCompleteListener(linkTask -> {
+                                        pendingGoogleCredential = null;
+                                        if (linkTask.isSuccessful()) {
+                                            Toast.makeText(this,
+                                                    "¡Google vinculado! Ahora puedes entrar con ambos métodos.",
+                                                    Toast.LENGTH_LONG).show();
+                                            verifyWalletAndProceed(user);
+                                        } else {
+                                            setLoading(false);
+                                            Toast.makeText(this,
+                                                    "Error al vincular Google: " + linkTask.getException().getMessage(),
+                                                    Toast.LENGTH_LONG).show();
+                                            FirebaseAuth.getInstance().signOut();
+                                        }
+                                    });
+                        } else {
+                            pendingGoogleCredential = null;
+                            setLoading(false);
+                        }
+                    } else {
+                        pendingGoogleCredential = null;
+                        setLoading(false);
+                        Toast.makeText(this,
+                                "Contraseña incorrecta. Inténtalo de nuevo.",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
     }
 
     private void verifyWalletAndProceed(FirebaseUser user) {
@@ -273,43 +376,99 @@ public class LoginActivity extends AppCompatActivity {
 
             @Override
             public void onError(String message) {
-                // Verificar si la cuenta existe únicamente con Google
-                authManager.fetchSignInMethods(email, methodsTask -> {
-                    boolean isGoogleOnly = false;
-                    if (methodsTask.isSuccessful() && methodsTask.getResult() != null) {
-                        java.util.List<String> methods = methodsTask.getResult().getSignInMethods();
-                        if (methods != null && methods.contains(GoogleAuthProvider.PROVIDER_ID) 
-                                && !methods.contains(EmailAuthProvider.PROVIDER_ID)) {
-                            isGoogleOnly = true;
-                        }
-                    }
-                    if (isGoogleOnly) {
-                        setLoading(false);
-                        showLinkDialog(email, password, message);
-                    } else {
-                        setLoading(false);
-                        Toast.makeText(LoginActivity.this, "Error: " + message, Toast.LENGTH_LONG).show();
-                    }
-                });
+                setLoading(false);
+                // fetchSignInMethodsForEmail está deprecado y no funciona con
+                // Email Enumeration Protection activa. Mostramos un diálogo
+                // amigable que guía al usuario sin depender de esa API.
+                showLoginErrorDialog(email, password);
             }
         });
     }
 
-    private void showLinkDialog(String email, String password, String originalError) {
+    /**
+     * Diálogo que aparece cuando el login con correo y contraseña falla.
+     * Cubre dos causas posibles:
+     *   1. La contraseña está mal → botón "Olvidé mi contraseña"
+     *   2. La cuenta solo tiene Google → botón "Continuar con Google"
+     *      que activará el Flujo B (Google → vincula contraseña automáticamente).
+     */
+    private void showLoginErrorDialog(String email, String password) {
         new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("Cuenta de Google detectada")
-                .setMessage("Esta cuenta está registrada con Google. ¿Deseas iniciar sesión con Google para vincular tu contraseña actual y poder usar ambos métodos de inicio de sesión?")
-                .setPositiveButton("Sí, vincular", (dialog, which) -> {
+                .setTitle("No se pudo iniciar sesión")
+                .setMessage("El correo o la contraseña son incorrectos.\n\n"
+                        + "• Si olvidaste tu contraseña, puedes restablecerla.\n"
+                        + "• Si te registraste con Google, usa el botón "
+                        + "\"Continuar con Google\" abajo. La app vinculará "
+                        + "tu contraseña automáticamente.")
+                .setPositiveButton("Continuar con Google", (dialog, which) -> {
+                    // Guardar credenciales para el flujo de vinculación (Flujo A)
                     pendingEmail = email;
                     pendingPassword = password;
                     isLinkingFlow = true;
                     signInWithGoogle();
                 })
-                .setNegativeButton("Cancelar", (dialog, which) -> {
-                    Toast.makeText(LoginActivity.this, "Error: " + originalError, Toast.LENGTH_LONG).show();
+                .setNeutralButton("Olvidé mi contraseña", (dialog, which) -> {
+                    // Pre-rellenar el correo en el diálogo de recuperación
+                    if (etEmail.getText() != null && etEmail.getText().toString().trim().isEmpty()) {
+                        etEmail.setText(email);
+                    }
+                    handleForgotPassword();
                 })
-                .setCancelable(false)
+                .setNegativeButton("Intentar de nuevo", null)
                 .show();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Recuperación de contraseña
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void handleForgotPassword() {
+        // Usar el email que ya esté en el campo si lo hay
+        String prefillEmail = etEmail.getText() != null ? etEmail.getText().toString().trim() : "";
+
+        android.widget.EditText inputEmail = new android.widget.EditText(this);
+        inputEmail.setInputType(android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+                | android.text.InputType.TYPE_CLASS_TEXT);
+        inputEmail.setHint("tu@correo.com");
+        if (!prefillEmail.isEmpty()) {
+            inputEmail.setText(prefillEmail);
+        }
+
+        int padding = (int) (16 * getResources().getDisplayMetrics().density);
+        inputEmail.setPadding(padding, padding, padding, padding);
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Recuperar contraseña")
+                .setMessage("Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.\n\nSi tu cuenta estaba registrada solo con Google, este proceso también te habilitará el acceso con correo y contraseña.")
+                .setView(inputEmail)
+                .setPositiveButton("Enviar", (dialog, which) -> {
+                    String email = inputEmail.getText().toString().trim();
+                    if (email.isEmpty()) {
+                        Toast.makeText(this, "Por favor ingresa tu correo.", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    sendPasswordResetEmail(email);
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private void sendPasswordResetEmail(String email) {
+        setLoading(true);
+        FirebaseAuth.getInstance().sendPasswordResetEmail(email)
+                .addOnCompleteListener(task -> {
+                    setLoading(false);
+                    if (task.isSuccessful()) {
+                        Toast.makeText(this,
+                                "Correo de recuperación enviado a " + email + ". Revisa tu bandeja de entrada.",
+                                Toast.LENGTH_LONG).show();
+                    } else {
+                        String msg = task.getException() != null
+                                ? task.getException().getMessage()
+                                : "Error desconocido";
+                        Toast.makeText(this, "Error: " + msg, Toast.LENGTH_LONG).show();
+                    }
+                });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
