@@ -29,6 +29,7 @@ import android.widget.ScrollView;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.activity.EdgeToEdge;
+import androidx.activity.SystemBarStyle;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
@@ -36,6 +37,7 @@ import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import android.widget.PopupMenu;
 import android.content.Context;
 
@@ -160,7 +162,10 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        EdgeToEdge.enable(this);
+        EdgeToEdge.enable(this,
+                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        );
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
@@ -402,6 +407,16 @@ public class MainActivity extends AppCompatActivity {
         binding.layoutBalanceSummary.setOnClickListener(v ->
                 startActivity(new Intent(this, BalanceDetailsActivity.class))
         );
+
+        // Configurar SwipeRefreshLayout
+        binding.swipeRefreshLayout.setColorSchemeResources(R.color.primary);
+        binding.swipeRefreshLayout.setOnRefreshListener(this::triggerSwipeRefresh);
+        binding.swipeRefreshLayout.setOnChildScrollUpCallback((parent, child) -> {
+            if (binding.rvTransactionsDashboard.getVisibility() == View.VISIBLE) {
+                return binding.rvTransactionsDashboard.canScrollVertically(-1);
+            }
+            return false;
+        });
     }
 
     private void initializeServerWalletOnce() {
@@ -1783,14 +1798,25 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshBalanceFromRpc() {
-        if (walletManager.getWallet() == null) return;
+        refreshBalanceFromRpc(null);
+    }
+
+    private void refreshBalanceFromRpc(Runnable onComplete) {
+        if (walletManager.getWallet() == null) {
+            if (onComplete != null) onComplete.run();
+            return;
+        }
         if (isBalanceRequestInFlight) {
             isBalanceRefreshQueued = true;
+            if (onComplete != null) onComplete.run();
             return;
         }
 
         List<String> addresses = walletManager.getIssuedReceiveAddresses();
-        if (addresses.isEmpty()) return;
+        if (addresses.isEmpty()) {
+            if (onComplete != null) onComplete.run();
+            return;
+        }
 
         isBalanceRequestInFlight = true;
         BitcoinRpcClient.getInstance().scanTxOutSetForAddresses(addresses, new Callback<BitcoinRpcResponse<BitcoinScanTxOutSetResult>>() {
@@ -1809,6 +1835,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                     Log.w(TAG, "No se pudo actualizar balance: " + message);
                     finishBalanceRefresh();
+                    if (onComplete != null) onComplete.run();
                     return;
                 }
 
@@ -1823,12 +1850,14 @@ public class MainActivity extends AppCompatActivity {
                     saveIncomingTransactionsFromUtxos(result, addresses);
                 }
                 finishBalanceRefresh();
+                if (onComplete != null) onComplete.run();
             }
 
             @Override
             public void onFailure(Call<BitcoinRpcResponse<BitcoinScanTxOutSetResult>> call, Throwable t) {
                 Log.w(TAG, "Error RPC actualizando balance", t);
                 finishBalanceRefresh();
+                if (onComplete != null) onComplete.run();
             }
         });
     }
@@ -2023,10 +2052,10 @@ public class MainActivity extends AppCompatActivity {
     private BitcoinRpcResponse<?> parseErrorResponse(Response<?> response) {
         try {
             if (response.errorBody() != null) {
-                retrofit2.Retrofit retrofit = BitcoinRpcClient.getInstance().getRetrofit();
-                retrofit2.Converter<okhttp3.ResponseBody, BitcoinRpcResponse> converter =
-                        retrofit.responseBodyConverter(BitcoinRpcResponse.class, new java.lang.annotation.Annotation[0]);
-                return converter.convert(response.errorBody());
+                String errorJson = response.errorBody().string();
+                com.squareup.moshi.Moshi moshi = new com.squareup.moshi.Moshi.Builder().build();
+                com.squareup.moshi.JsonAdapter<BitcoinRpcResponse> adapter = moshi.adapter(BitcoinRpcResponse.class);
+                return adapter.fromJson(errorJson);
             }
         } catch (Exception e) {
             Log.e(TAG, "Error parsing error body", e);
@@ -2034,8 +2063,27 @@ public class MainActivity extends AppCompatActivity {
         return null;
     }
 
+    private void triggerSwipeRefresh() {
+        final int[] pending = {2};
+        Runnable decrement = () -> {
+            pending[0]--;
+            if (pending[0] <= 0) {
+                binding.swipeRefreshLayout.setRefreshing(false);
+            }
+        };
+        refreshBalanceFromRpc(decrement);
+        loadDashboardTransactions(decrement);
+    }
+
     private void loadDashboardTransactions() {
-        if (binding == null || binding.layoutDashboard.getVisibility() != View.VISIBLE) return;
+        loadDashboardTransactions(null);
+    }
+
+    private void loadDashboardTransactions(Runnable onComplete) {
+        if (binding == null || binding.layoutDashboard.getVisibility() != View.VISIBLE) {
+            if (onComplete != null) onComplete.run();
+            return;
+        }
         binding.progressBarDashboard.setVisibility(View.VISIBLE);
         AuthManager.getInstance().getTransactions(new AuthManager.TransactionsCallback() {
             @Override
@@ -2053,12 +2101,14 @@ public class MainActivity extends AppCompatActivity {
                     );
                     binding.rvTransactionsDashboard.setAdapter(adapter);
                 }
+                if (onComplete != null) onComplete.run();
             }
 
             @Override
             public void onError(String message) {
                 binding.progressBarDashboard.setVisibility(View.GONE);
                 Toast.makeText(MainActivity.this, "Error cargando actividad: " + message, Toast.LENGTH_SHORT).show();
+                if (onComplete != null) onComplete.run();
             }
         });
     }

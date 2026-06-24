@@ -118,19 +118,46 @@ public class ProfileActivity extends AppCompatActivity {
     private void showSeedPhrase() {
         WalletManager walletManager = WalletManager.getInstance(this);
         if (walletManager.isEncrypted()) {
-            requestWalletPassword(password -> {
-                walletManager.getMnemonicAsync(password, new WalletManager.MnemonicCallback() {
+            FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+            String savedPassword = (user != null) ? walletManager.getSavedWalletPassword(user.getUid()) : null;
+
+            if (savedPassword != null && BiometricHelper.isBiometricOrPinAvailable(this)) {
+                BiometricHelper.showPrompt(this, new BiometricHelper.BiometricCallback() {
                     @Override
-                    public void onSuccess(String mnemonic) {
-                        displaySeedDialog(mnemonic);
+                    public void onAuthenticated() {
+                        walletManager.getMnemonicAsync(savedPassword, new WalletManager.MnemonicCallback() {
+                            @Override
+                            public void onSuccess(String mnemonic) {
+                                displaySeedDialog(mnemonic);
+                            }
+
+                            @Override
+                            public void onError(Exception e) {
+                                Toast.makeText(ProfileActivity.this, "Error al descifrar semilla: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                            }
+                        });
                     }
 
                     @Override
-                    public void onError(Exception e) {
-                        Toast.makeText(ProfileActivity.this, "Contraseña incorrecta", Toast.LENGTH_SHORT).show();
+                    public void onError(String error) {
+                        Toast.makeText(ProfileActivity.this, "Autenticación biométrica fallida: " + error, Toast.LENGTH_SHORT).show();
                     }
                 });
-            });
+            } else {
+                requestWalletPassword(password -> {
+                    walletManager.getMnemonicAsync(password, new WalletManager.MnemonicCallback() {
+                        @Override
+                        public void onSuccess(String mnemonic) {
+                            displaySeedDialog(mnemonic);
+                        }
+
+                        @Override
+                        public void onError(Exception e) {
+                            Toast.makeText(ProfileActivity.this, "Contraseña incorrecta", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                });
+            }
         } else {
             walletManager.getMnemonicAsync(null, new WalletManager.MnemonicCallback() {
                 @Override

@@ -65,6 +65,7 @@ dependencies {
     implementation libs.zxing.core
     implementation libs.zxing.android.embedded
     implementation libs.security.crypto
+    implementation libs.swiperefreshlayout
 
     testImplementation libs.junit
     androidTestImplementation libs.ext.junit
