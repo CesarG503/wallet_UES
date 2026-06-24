@@ -114,7 +114,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean isBalancePolling;
     private boolean isBalanceRequestInFlight;
     private boolean isBalanceRefreshQueued;
-    private boolean isServerWalletInitialized;
+    private static boolean isServerWalletInitialized;
     private boolean isMining;
     private boolean isMiningRequestInFlight;
     private volatile boolean shouldMineCurrentWork;
@@ -183,6 +183,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void goToLogin() {
+        isServerWalletInitialized = false;
+        BalanceDetailsActivity.lastScanResult = null;
+        BalanceDetailsActivity.lastAddresses = null;
         walletManager.reset();
         startActivity(new Intent(this, LoginActivity.class));
         finish();
@@ -1987,7 +1990,7 @@ public class MainActivity extends AppCompatActivity {
             if (wallet == null) {
                 wallet = walletManager.loadWallet();
             }
-            if (wallet != null) {
+            if (wallet != null && binding != null) {
                 displayBalance(wallet.getBalance().value);
                 binding.tvNetwork.setText(Constants.COIN_DISPLAY_NAME + " " + Constants.NETWORK_NAME);
 

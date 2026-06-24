@@ -37,6 +37,9 @@ public class BalanceDetailsActivity extends AppCompatActivity {
     private static final String TAG = "BalanceDetailsActivity";
     private static final int COINBASE_MATURITY_CONFIRMATIONS = 100;
 
+    static BitcoinScanTxOutSetResult lastScanResult;
+    static List<String> lastAddresses;
+
     private ActivityBalanceDetailsBinding binding;
     private WalletManager walletManager;
     private MiningRewardAdapter rewardAdapter;
@@ -54,7 +57,11 @@ public class BalanceDetailsActivity extends AppCompatActivity {
         rewardAdapter = new MiningRewardAdapter();
         binding.rvMiningRewards.setAdapter(rewardAdapter);
 
-        loadBalanceDetails();
+        if (lastScanResult != null && lastAddresses != null) {
+            renderBalance(lastScanResult, lastAddresses);
+        } else {
+            loadBalanceDetails();
+        }
     }
 
     private void loadBalanceDetails() {
@@ -103,6 +110,8 @@ public class BalanceDetailsActivity extends AppCompatActivity {
                     return;
                 }
 
+                lastScanResult = result;
+                lastAddresses = addresses;
                 renderBalance(result, addresses);
             }
 
