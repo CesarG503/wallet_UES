@@ -445,8 +445,12 @@ public class MainActivity extends AppCompatActivity {
         // Servicios
         binding.btnServices.setOnClickListener(v -> showServicesDialog());
 
-        binding.btnReceive.setOnClickListener(v -> showReceiveAddress());
-        binding.btnSend.setOnClickListener(v -> showSendDialog());
+        binding.btnReceive.setOnClickListener(v -> {
+            startActivity(new Intent(this, ReceiveActivity.class));
+        });
+        binding.btnSend.setOnClickListener(v -> {
+            startActivity(new Intent(this, TransferActivity.class));
+        });
         binding.layoutBalanceSummary.setOnClickListener(v ->
                 startActivity(new Intent(this, BalanceDetailsActivity.class))
         );
@@ -532,103 +536,6 @@ public class MainActivity extends AppCompatActivity {
                 Log.w(TAG, "No se pudo cargar wallet RPC " + walletName, t);
             }
         });
-    }
-
-    private void showReceiveAddress() {
-        String address = walletManager.getCurrentReceiveAddress();
-
-        if (address == null) {
-            Toast.makeText(this, R.string.empty_receive_address, Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        binding.tvReceiveAddress.setText(address);
-        registerAddressWithServer(address, false);
-
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dpToPx(24), dpToPx(12), dpToPx(24), 0);
-
-        TextView messageView = new TextView(this);
-        messageView.setText(R.string.receive_address_message);
-        layout.addView(messageView);
-
-        ImageView qrImageView = new ImageView(this);
-        LinearLayout.LayoutParams qrLayoutParams = new LinearLayout.LayoutParams(
-                dpToPx(QR_CODE_SIZE_DP),
-                dpToPx(QR_CODE_SIZE_DP)
-        );
-        qrLayoutParams.gravity = Gravity.CENTER_HORIZONTAL;
-        qrLayoutParams.setMargins(0, dpToPx(16), 0, dpToPx(16));
-        layout.addView(qrImageView, qrLayoutParams);
-
-        TextView addressView = new TextView(this);
-        addressView.setTextIsSelectable(true);
-        addressView.setGravity(Gravity.CENTER_HORIZONTAL);
-        layout.addView(addressView);
-
-        updateReceiveAddressViews(address, qrImageView, addressView);
-
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.receive_address_title)
-                .setView(layout)
-                .setNeutralButton("Nueva dirección", null)
-                .setPositiveButton(R.string.btn_done, (dialogInterface, which) -> dialogInterface.dismiss())
-                .create();
-
-        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v ->
-                createFreshReceiveAddress(qrImageView, addressView)
-        ));
-        dialog.show();
-    }
-
-    private void createFreshReceiveAddress(ImageView qrImageView, TextView addressView) {
-        try {
-            String address = walletManager.getFreshReceiveAddress();
-            if (address == null) {
-                Toast.makeText(this, R.string.empty_receive_address, Toast.LENGTH_SHORT).show();
-                return;
-            }
-            binding.tvReceiveAddress.setText(address);
-            registerAddressWithServer(address, true);
-            updateReceiveAddressViews(address, qrImageView, addressView);
-            registerPushNotifications();
-        } catch (IOException e) {
-            Toast.makeText(this, R.string.empty_receive_address, Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void updateReceiveAddressViews(String address, ImageView qrImageView, TextView addressView) {
-        addressView.setText(address);
-        try {
-            qrImageView.setImageBitmap(generateQrBitmap(address));
-            qrImageView.setVisibility(View.VISIBLE);
-        } catch (WriterException e) {
-            Log.w(TAG, "No se pudo generar el QR para la dirección " + address, e);
-            qrImageView.setVisibility(View.GONE);
-        }
-    }
-
-    private Bitmap generateQrBitmap(String content) throws WriterException {
-        int size = dpToPx(QR_CODE_SIZE_DP);
-        BitMatrix bitMatrix = new MultiFormatWriter().encode(
-                content,
-                BarcodeFormat.QR_CODE,
-                size,
-                size
-        );
-
-        int[] pixels = new int[size * size];
-        for (int y = 0; y < size; y++) {
-            int offset = y * size;
-            for (int x = 0; x < size; x++) {
-                pixels[offset + x] = bitMatrix.get(x, y) ? Color.BLACK : Color.WHITE;
-            }
-        }
-
-        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        bitmap.setPixels(pixels, 0, size, 0, 0, size, size);
-        return bitmap;
     }
 
     private int dpToPx(int dp) {
@@ -1260,7 +1167,7 @@ public class MainActivity extends AppCompatActivity {
 
         gridLayout.addView(createServiceCard("Mi QR", R.drawable.ic_qrcode_mdi, v -> {
             dialog.dismiss();
-            showReceiveAddress();
+            startActivity(new Intent(this, ReceiveActivity.class));
         }));
 
         gridLayout.addView(createServiceCard("Copiar Dir.", R.drawable.ic_copy_mdi, v -> {
@@ -1486,7 +1393,10 @@ public class MainActivity extends AppCompatActivity {
         btnTransfer.setPadding(dpToPx(8), 0, dpToPx(8), 0);
         btnTransfer.setOnClickListener(v -> {
             parentDialog.dismiss();
-            showSendDialog(contact.getPublicKey());
+            Intent intent = new Intent(this, TransferActivity.class);
+            intent.putExtra("address", contact.getPublicKey());
+            intent.putExtra("name", contact.getName());
+            startActivity(intent);
         });
 
         LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
