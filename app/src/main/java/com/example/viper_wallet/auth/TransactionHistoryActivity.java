@@ -5,7 +5,11 @@ import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.RecyclerView;
 import com.example.viper_wallet.R;
 import com.example.viper_wallet.TransactionDetailsDialog;
@@ -24,6 +28,7 @@ public class TransactionHistoryActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        EdgeToEdge.enable(this);
         setContentView(R.layout.activity_transaction_history);
 
         authManager = AuthManager.getInstance();
@@ -31,6 +36,12 @@ public class TransactionHistoryActivity extends AppCompatActivity {
         MaterialToolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
         toolbar.setNavigationOnClickListener(v -> onBackPressed());
+
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main_history), (v, insets) -> {
+            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+            return insets;
+        });
 
         rvTransactions = findViewById(R.id.rvTransactions);
         progressBar = findViewById(R.id.progressBar);

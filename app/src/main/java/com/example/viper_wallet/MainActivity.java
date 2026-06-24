@@ -212,7 +212,18 @@ public class MainActivity extends AppCompatActivity {
     private void setupWindowInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(binding.main, (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+            // Aplicar padding lateral y inferior al root para evitar solapamiento con gestos/botones
+            v.setPadding(systemBars.left, 0, systemBars.right, systemBars.bottom);
+            
+            // Aplicar el padding superior (Notch/Status Bar) al primer contenedor del dashboard
+            // para que el fondo del ScrollView sí suba hasta arriba.
+            binding.innerDashboard.setPadding(
+                binding.innerDashboard.getPaddingLeft(),
+                systemBars.top,
+                binding.innerDashboard.getPaddingRight(),
+                binding.innerDashboard.getPaddingBottom()
+            );
+
             return insets;
         });
     }
@@ -1157,7 +1168,7 @@ public class MainActivity extends AppCompatActivity {
 
         MaterialButton btnSaveFriend = new MaterialButton(this);
         btnSaveFriend.setText("Guardar como amigo");
-        btnSaveFriend.setIconResource(android.R.drawable.ic_menu_save);
+        btnSaveFriend.setIconResource(R.drawable.ic_plus);
         layout.addView(btnSaveFriend);
 
         final EditText etAmount = new EditText(this);
@@ -1167,7 +1178,7 @@ public class MainActivity extends AppCompatActivity {
 
         MaterialButton btnUseMax = new MaterialButton(this);
         btnUseMax.setText("Usar máximo");
-        btnUseMax.setIconResource(android.R.drawable.ic_menu_upload);
+        btnUseMax.setIconResource(R.drawable.ic_arrow_up_right);
         layout.addView(btnUseMax);
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
@@ -1339,13 +1350,13 @@ public class MainActivity extends AppCompatActivity {
 
         MaterialButton btnAddFriend = new MaterialButton(this);
         btnAddFriend.setText("Agregar amigo con QR");
-        btnAddFriend.setIconResource(android.R.drawable.ic_input_add);
+        btnAddFriend.setIconResource(R.drawable.ic_plus);
         btnAddFriend.setLayoutParams(buttonParams);
         content.addView(btnAddFriend);
 
         MaterialButton btnSendByQr = new MaterialButton(this);
         btnSendByQr.setText("Enviar escaneando QR");
-        btnSendByQr.setIconResource(android.R.drawable.ic_menu_camera);
+        btnSendByQr.setIconResource(R.drawable.ic_qrcode_mdi);
         btnSendByQr.setLayoutParams(buttonParams);
         content.addView(btnSendByQr);
 
@@ -1991,7 +2002,14 @@ public class MainActivity extends AppCompatActivity {
                 wallet = walletManager.loadWallet();
             }
             if (wallet != null && binding != null) {
-                displayBalance(wallet.getBalance().value);
+                // Priorizar el último balance conocido (RPC) para evitar que el balance SPV (que tarda en sincronizar)
+                // lo resetee a cero visualmente al navegar entre pantallas.
+                if (lastTotalBalanceSats > 0 || lastImmatureMiningSats > 0) {
+                    displayBalance(new BalanceSummary(lastTotalBalanceSats, lastSpendableBalanceSats, lastImmatureMiningSats, lastMiningMaturityBlocks));
+                } else {
+                    displayBalance(wallet.getBalance().value);
+                }
+
                 binding.tvNetwork.setText(Constants.COIN_DISPLAY_NAME + " " + Constants.NETWORK_NAME);
 
                 String receiveAddress = walletManager.getCurrentReceiveAddress();
@@ -2238,7 +2256,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String formatCoinAmount(long sats) {
-        return String.format(Locale.US, "%.8f %s", sats / 100_000_000.0, Constants.COIN_TICKER);
+        BigDecimal coin = BigDecimal.valueOf(sats).divide(BigDecimal.valueOf(100_000_000L), 8, RoundingMode.HALF_UP);
+        java.text.DecimalFormat df = new java.text.DecimalFormat("#,##0.00######");
+        return df.format(coin) + " " + Constants.COIN_TICKER;
     }
 
     private String satsToPlainCoin(long sats) {
