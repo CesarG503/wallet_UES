@@ -28,7 +28,7 @@ public class RegisterActivity extends AppCompatActivity {
 
     // ──── Views ──────────────────────────────────────────────────────────────
     private ImageButton btnBack;
-    private View        dot1, dot2, dot3, dot4;
+    private View        dot1, dot2, dot3, dot4, dot5;
 
     // ──── ViewModel ──────────────────────────────────────────────────────────
     private RegisterViewModel viewModel;
@@ -54,6 +54,7 @@ public class RegisterActivity extends AppCompatActivity {
         dot2    = findViewById(R.id.dot2);
         dot3    = findViewById(R.id.dot3);
         dot4    = findViewById(R.id.dot4);
+        dot5    = findViewById(R.id.dot5);
 
         btnBack.setOnClickListener(v -> onBackPressed());
 
@@ -72,9 +73,10 @@ public class RegisterActivity extends AppCompatActivity {
     public void goToStep(int step) {
         Fragment nextFragment;
         switch (step) {
-            case 2:  nextFragment = new RegisterStep2NicknameFragment(); break;
-            case 3:  nextFragment = new RegisterStep3SeedFragment();     break;
-            case 4:  nextFragment = new RegisterStep4AesFragment();      break;
+            case 2:  nextFragment = new RegisterStepEmailVerificationFragment(); break;
+            case 3:  nextFragment = new RegisterStep2NicknameFragment(); break;
+            case 4:  nextFragment = new RegisterStep3SeedFragment();     break;
+            case 5:  nextFragment = new RegisterStep4AesFragment();      break;
             default: return;
         }
         loadFragment(nextFragment, true);
@@ -116,8 +118,11 @@ public class RegisterActivity extends AppCompatActivity {
         dot4.setBackground(activeStep == 4
                 ? getDrawable(R.drawable.bg_step_dot_active)
                 : getDrawable(R.drawable.bg_step_dot_inactive));
+        dot5.setBackground(activeStep == 5
+                ? getDrawable(R.drawable.bg_step_dot_active)
+                : getDrawable(R.drawable.bg_step_dot_inactive));
 
-        // Mostrar el botón atrás solo en los pasos 2, 3 y 4
+        // Mostrar el botón atrás solo en los pasos 2, 3, 4 y 5
         btnBack.setVisibility(activeStep > 1 ? View.VISIBLE : View.INVISIBLE);
     }
 

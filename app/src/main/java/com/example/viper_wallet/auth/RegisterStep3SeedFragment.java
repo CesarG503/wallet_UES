@@ -93,8 +93,8 @@ public class RegisterStep3SeedFragment extends Fragment {
         btnCopy.setOnClickListener(v -> copyToClipboard());
 
         btnContinue.setOnClickListener(v -> {
-            viewModel.currentStep.setValue(4);
-            ((RegisterActivity) requireActivity()).goToStep(4);
+            viewModel.currentStep.setValue(5);
+            ((RegisterActivity) requireActivity()).goToStep(5);
         });
     }
 

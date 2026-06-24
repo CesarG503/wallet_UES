@@ -197,51 +197,70 @@ public class RegisterStep1Fragment extends Fragment {
         // Deshabilitar mientras consultamos Firebase
         btnNext.setEnabled(false);
 
-        // Intentar crear la cuenta temporalmente para validar si el correo ya existe.
-        // Si el correo ya existe, fallará con FirebaseAuthUserCollisionException.
-        // Si no existe, se creará de forma exitosa y la borraremos inmediatamente.
+        FirebaseUser currentUser = FirebaseAuth.getInstance().getCurrentUser();
+        if (currentUser != null) {
+            String currentEmail = currentUser.getEmail();
+            if (email.equalsIgnoreCase(currentEmail)) {
+                // El usuario ya existe y es el que está logueado en este momento.
+                // Si cambió la contraseña, la actualizamos. Si no, solo pasamos al paso 2.
+                String savedPass = viewModel.password.getValue();
+                if (savedPass != null && !savedPass.equals(pass)) {
+                    currentUser.updatePassword(pass).addOnCompleteListener(updateTask -> {
+                        if (!isAdded()) return;
+                        if (updateTask.isSuccessful()) {
+                            viewModel.password.setValue(pass);
+                            currentUser.sendEmailVerification();
+                            viewModel.currentStep.setValue(2);
+                            ((RegisterActivity) requireActivity()).goToStep(2);
+                        } else {
+                            btnNext.setEnabled(true);
+                            showEmailError(updateTask.getException() != null ? updateTask.getException().getMessage() : "Error al actualizar la contraseña.");
+                        }
+                    });
+                } else {
+                    // Si no cambió la contraseña, enviamos/reenviamos verificación y avanzamos
+                    currentUser.sendEmailVerification();
+                    viewModel.currentStep.setValue(2);
+                    ((RegisterActivity) requireActivity()).goToStep(2);
+                }
+                return;
+            } else {
+                // El usuario cambió de correo. Eliminamos la cuenta temporal anterior
+                // y luego creamos la nueva cuenta.
+                currentUser.delete().addOnCompleteListener(deleteTask -> {
+                    FirebaseAuth.getInstance().signOut();
+                    createNewUser(email, pass);
+                });
+                return;
+            }
+        }
+
+        createNewUser(email, pass);
+    }
+
+    private void createNewUser(String email, String pass) {
         FirebaseAuth.getInstance().createUserWithEmailAndPassword(email, pass)
                 .addOnCompleteListener(task -> {
                     if (!isAdded()) return;
 
                     if (task.isSuccessful()) {
-                        // El correo NO existe. Borramos la cuenta temporal creada inmediatamente.
                         FirebaseUser user = task.getResult().getUser();
                         if (user != null) {
-                            user.delete().addOnCompleteListener(deleteTask -> {
-                                if (!isAdded()) return;
-                                // Guardar en el ViewModel y avanzar al paso 2
-                                viewModel.email.setValue(email);
-                                viewModel.password.setValue(pass);
-                                viewModel.currentStep.setValue(2);
-                                ((RegisterActivity) requireActivity()).goToStep(2);
-                            });
-                        } else {
-                            // Si por algún motivo user es nulo, avanzamos de todos modos
-                            viewModel.email.setValue(email);
-                            viewModel.password.setValue(pass);
-                            viewModel.currentStep.setValue(2);
-                            ((RegisterActivity) requireActivity()).goToStep(2);
+                            user.sendEmailVerification();
                         }
+                        viewModel.email.setValue(email);
+                        viewModel.password.setValue(pass);
+                        viewModel.isGoogleLinked.setValue(false);
+                        viewModel.currentStep.setValue(2);
+                        ((RegisterActivity) requireActivity()).goToStep(2);
                     } else {
                         Exception exception = task.getException();
                         if (exception instanceof FirebaseAuthUserCollisionException) {
-                            AuthManager.getInstance().fetchSignInMethods(email, methodsTask -> {
-                                if (!isAdded()) return;
-                                boolean isGoogle = false;
-                                if (methodsTask.isSuccessful() && methodsTask.getResult() != null) {
-                                    java.util.List<String> methods = methodsTask.getResult().getSignInMethods();
-                                    if (methods != null && methods.contains(GoogleAuthProvider.PROVIDER_ID)) {
-                                        isGoogle = true;
-                                    }
-                                }
-                                if (isGoogle || !methodsTask.isSuccessful()) {
-                                    showLinkDialog(email, pass);
-                                } else {
-                                    btnNext.setEnabled(true);
-                                    showEmailError("Usuario existente");
-                                }
-                            });
+                            // Dado que fetchSignInMethods no funciona bajo protección de enumeración de correo,
+                            // asumimos que el usuario podría haber iniciado con Google y le ofrecemos vincularlos.
+                            // Si en realidad era una cuenta de contraseña, el flujo de Google fallará con colisión
+                            // y se lo indicaremos al usuario oportunamente.
+                            showLinkDialog(email, pass);
                         } else {
                             btnNext.setEnabled(true);
                             showEmailError(exception != null ? exception.getMessage() : "Error de red. Intenta de nuevo.");
@@ -311,8 +330,8 @@ public class RegisterStep1Fragment extends Fragment {
                                                         viewModel.email.setValue(email);
                                                         viewModel.password.setValue(pass);
                                                         viewModel.isGoogleLinked.setValue(true);
-                                                        viewModel.currentStep.setValue(2);
-                                                        ((RegisterActivity) requireActivity()).goToStep(2);
+                                                        viewModel.currentStep.setValue(3);
+                                                        ((RegisterActivity) requireActivity()).goToStep(3);
                                                     }
                                                 }
 
@@ -337,7 +356,11 @@ public class RegisterStep1Fragment extends Fragment {
                     } else {
                         btnNext.setEnabled(true);
                         Exception e = task.getException();
-                        showEmailError("Error al autenticar con Google: " + (e != null ? e.getMessage() : "Desconocido"));
+                        if (e instanceof com.google.firebase.auth.FirebaseAuthUserCollisionException) {
+                            showEmailError("Esta cuenta ya está registrada con contraseña. Por favor, inicia sesión.");
+                        } else {
+                            showEmailError("Error al autenticar con Google: " + (e != null ? e.getMessage() : "Desconocido"));
+                        }
                     }
                 });
     }

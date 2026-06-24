@@ -72,6 +72,13 @@
                 android:layout_height="10dp"
                 android:layout_marginHorizontal="4dp"
                 android:background="@drawable/bg_step_dot_inactive" />
+
+            <View
+                android:id="@+id/dot5"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginHorizontal="4dp"
+                android:background="@drawable/bg_step_dot_inactive" />
         </LinearLayout>
 
         <!-- Spacer derecho para equilibrar -->
